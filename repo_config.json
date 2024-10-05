@@ -1,0 +1,25 @@
+{
+    "stored": "local",
+    "config_version": "1.0",
+    "azureLocation": {
+        "description": "the location for your Azure Datacenter",
+        "shellscript": "",
+        "default": "uswest3",
+        "tempEnvironmentVariableName": "AZURE_LOCATION",
+        "requiredAsEnv": true
+    },
+    "username": {
+        "description": "the username for the test",
+        "shellscript": "",
+        "default": "test_user",
+        "tempEnvironmentVariableName": "",
+        "requiredAsEnv": false
+    },
+    "secret": {
+        "description": "the secret for the test",
+        "shellscript": "",
+        "default": "mysecret",
+        "tempEnvironmentVariableName": "",
+        "requiredAsEnv": false
+    }
+}
