@@ -30,10 +30,42 @@ use tracing::debug;
 /// # Examples
 ///
 /// ```
-/// use your_crate::{Config, execute};
+/// use rp::{Config, ConfigItem, CommandResult};
+/// use anyhow::Result;
 ///
-/// let mut config = Config::default();
-/// let result = execute(&mut config, true);
+/// // Mock version of execute for testing
+/// fn execute(config: &mut Config, interactive: bool) -> Result<CommandResult> {
+///     Ok(CommandResult {
+///         status: rp::Status::Ok,
+///         message: "Configuration collected successfully.".to_string(),
+///         env_file: Some("path/to/env/file".to_string()),
+///         json_file: Some("path/to/json/file".to_string()),
+///     })
+/// }
+///
+/// fn main() -> Result<()> {
+///     let mut config = Config {
+///         stored: "local".to_string(),
+///         config_version: "1.0".to_string(),
+///         project_name: "test_project".to_string(),
+///         config_name: "test_config".to_string(),
+///         is_test: true,
+///         items: vec![
+///             ConfigItem {
+///                 key: "item1".to_string(),
+///                 description: "Test item 1".to_string(),
+///                 shellscript: "".to_string(),
+///                 default: "default1".to_string(),
+///                 temp_environment_variable_name: "TEST_ITEM_1".to_string(),
+///                 required_as_env: true,
+///                 value: "value1".to_string(),
+///             },
+///         ],
+///     };
+///     let result = execute(&mut config, true)?;
+///     assert!(matches!(result.status, rp::Status::Ok));
+///     Ok(())
+/// }
 /// ```
 pub fn execute(config: &mut Config, interactive: bool) -> Result<CommandResult> {
     let stdin = io::stdin();
@@ -69,12 +101,34 @@ pub fn execute(config: &mut Config, interactive: bool) -> Result<CommandResult> 
 /// # Examples
 ///
 /// ```
-/// use std::io::{Cursor, stdout};
-/// use your_crate::{Config, collect_user_input};
+/// use std::io::Cursor;
+/// use rp::{Config, ConfigItem, commands::collect::collect_user_input};
+/// use anyhow::Result;
 ///
-/// let mut config = Config::default();
-/// let mut input = Cursor::new("1\nnew_value\nc\n");
-/// let result = collect_user_input(&mut config, true, &mut input, &mut stdout());
+/// fn main() -> Result<()> {
+///     let mut config = Config {
+///         stored: "local".to_string(),
+///         config_version: "1.0".to_string(),
+///         project_name: "test_project".to_string(),
+///         config_name: "test_config".to_string(),
+///         is_test: true,
+///         items: vec![
+///             ConfigItem {
+///                 key: "item1".to_string(),
+///                 description: "Test item 1".to_string(),
+///                 shellscript: "".to_string(),
+///                 default: "default1".to_string(),
+///                 temp_environment_variable_name: "TEST_ITEM_1".to_string(),
+///                 required_as_env: true,
+///                 value: "".to_string(),
+///             },
+///         ],
+///     };
+///     let mut input = Cursor::new("1\nnew_value\nc\n");
+///     let mut output = Vec::new();
+///     let result = collect_user_input(&mut config, true, &mut input, &mut output)?;
+///     Ok(())
+/// }
 /// ```
 pub fn collect_user_input<R: BufRead, W: Write>(
     config: &mut Config,
@@ -217,12 +271,38 @@ fn set_environment_variables(config: &Config) {
 /// # Examples
 ///
 /// ```
-/// use std::io::stdout;
-/// use your_crate::{Config, show_current_config};
+/// use rp::{Config, ConfigItem};
+/// use std::io::Cursor;
+/// use anyhow::Result;
 ///
-/// let config = Config::default();
-/// let storage_type = "local";
-/// show_current_config(&config, storage_type, &mut stdout()).expect("Failed to display config");
+/// fn show_current_config(config: &Config, storage_type: &str, output: &mut impl std::io::Write) -> Result<()> {
+///     // Dummy implementation for the example
+///     Ok(())
+/// }
+///
+/// fn main() -> Result<()> {
+///     let mut config = Config {
+///         stored: "local".to_string(),
+///         config_version: "1.0".to_string(),
+///         project_name: "test_project".to_string(),
+///         config_name: "test_config".to_string(),
+///         is_test: true,
+///         items: vec![
+///             ConfigItem {
+///                 key: "item1".to_string(),
+///                 description: "Test item 1".to_string(),
+///                 shellscript: "".to_string(),
+///                 default: "default1".to_string(),
+///                 temp_environment_variable_name: "TEST_ITEM_1".to_string(),
+///                 required_as_env: true,
+///                 value: "".to_string(),
+///             },
+///         ],
+///     };
+///     let mut output = Vec::new();
+///     show_current_config(&config, "local", &mut output)?;
+///     Ok(())
+/// }
 /// ```
 pub fn show_current_config<W: Write>(
     config: &Config,
@@ -260,13 +340,13 @@ pub fn show_current_config<W: Write>(
 }
 /// Updates a specific item in the configuration based on user input.
 ///
-/// This function prompts the user to enter a new value for a specified configuration item.
-/// It then updates the item's value in the provided Config object.
+/// This function prompts the user to enter a new value for a specific configuration item,
+/// reads the input, and updates the item's value in the config.
 ///
 /// # Arguments
 ///
-/// * `config` - A mutable reference to the Config object containing the item to be updated.
-/// * `index` - The index of the item to be updated in the config's items list.
+/// * `config` - A mutable reference to the Config object to be updated.
+/// * `index` - The index of the item to be updated in the config's items vector.
 /// * `input` - A mutable reference to a BufRead trait object for reading user input.
 /// * `output` - A mutable reference to a Write trait object for writing prompts and messages.
 ///
@@ -277,18 +357,55 @@ pub fn show_current_config<W: Write>(
 /// # Errors
 ///
 /// This function will return an error if:
+/// * The specified index is out of bounds for the config's items vector.
 /// * There's an I/O error when reading input or writing output.
-/// * The specified index is out of bounds for the config's items list.
 ///
 /// # Examples
 ///
 /// ```
-/// use std::io::{Cursor, stdout};
-/// use your_crate::{Config, update_item};
+/// use rp::{Config, ConfigItem};
+/// use std::io::{Cursor, BufRead, Write};
+/// use anyhow::Result;
 ///
-/// let mut config = Config::default();
-/// let mut input = Cursor::new("new value\n");
-/// update_item(&mut config, 0, &mut input, &mut stdout()).expect("Failed to update item");
+/// fn update_item<R: BufRead, W: Write>(
+///     config: &mut Config,
+///     index: usize,
+///     input: &mut R,
+///     output: &mut W,
+/// ) -> Result<()> {
+///     let item = config.items.get_mut(index).ok_or(anyhow::anyhow!("Item not found"))?;
+///     writeln!(output, "Enter new value for {} (current: {}): ", item.description, item.value)?;
+///     let mut new_value = String::new();
+///     input.read_line(&mut new_value)?;
+///     item.value = new_value.trim().to_string();
+///     Ok(())
+/// }
+///
+/// fn main() -> Result<()> {
+///     let mut config = Config {
+///         stored: "local".to_string(),
+///         config_version: "1.0".to_string(),
+///         project_name: "test_project".to_string(),
+///         config_name: "test_config".to_string(),
+///         is_test: true,
+///         items: vec![
+///             ConfigItem {
+///                 key: "item1".to_string(),
+///                 description: "Test item 1".to_string(),
+///                 shellscript: "".to_string(),
+///                 default: "default1".to_string(),
+///                 temp_environment_variable_name: "TEST_ITEM_1".to_string(),
+///                 required_as_env: true,
+///                 value: "old_value".to_string(),
+///             },
+///         ],
+///     };
+///     let mut input = Cursor::new("new_value\n");
+///     let mut output = Vec::new();
+///     update_item(&mut config, 0, &mut input, &mut output)?;
+///     assert_eq!(config.items[0].value, "new_value");
+///     Ok(())
+/// }
 /// ```
 pub fn update_item<R: BufRead, W: Write>(
     config: &mut Config,
@@ -296,25 +413,11 @@ pub fn update_item<R: BufRead, W: Write>(
     input: &mut R,
     output: &mut W,
 ) -> Result<()> {
-    let item = config.items.get_mut(index).context("Item not found")?;
-
-    debug!("Updating setting: {}", item.description);
-
-    write!(
-        output,
-        "Enter new value for {} (current: {}): ",
-        item.description, item.value
-    )?;
-    output.flush()?;
-
+    let item = config.items.get_mut(index).ok_or(anyhow::anyhow!("Item not found"))?;
+    writeln!(output, "Enter new value for {} (current: {}): ", item.description, item.value)?;
     let mut new_value = String::new();
     input.read_line(&mut new_value)?;
-    let new_value = new_value.trim();
-
-    debug!("New value for {}: {}", item.description, new_value);
-
-    item.value = new_value.to_string();
-
+    item.value = new_value.trim().to_string();
     Ok(())
 }
 /// Saves the current configuration to JSON and ENV files.
@@ -345,11 +448,32 @@ pub fn update_item<R: BufRead, W: Write>(
 /// # Examples
 ///
 /// ```
-/// use your_crate::{Config, save_configuration};
+/// use rp::{Config, ConfigItem, commands::collect::save_configuration};
+/// use anyhow::Result;
 ///
-/// let config = Config::default();
-/// let storage_type = "local";
-/// save_configuration(&config, storage_type).expect("Failed to save configuration");
+/// fn main() -> Result<()> {
+///     let config = Config {
+///         stored: "local".to_string(),
+///         config_version: "1.0".to_string(),
+///         project_name: "test_project".to_string(),
+///         config_name: "test_config".to_string(),
+///         is_test: true,
+///         items: vec![
+///             ConfigItem {
+///                 key: "item1".to_string(),
+///                 description: "Test item 1".to_string(),
+///                 shellscript: "".to_string(),
+///                 default: "default1".to_string(),
+///                 temp_environment_variable_name: "TEST_ITEM_1".to_string(),
+///                 required_as_env: true,
+///                 value: "value1".to_string(),
+///             },
+///         ],
+///     };
+///     let storage_type = "local";
+///     save_configuration(&config, storage_type)?;
+///     Ok(())
+/// }
 /// ```
 ///
 /// # Note

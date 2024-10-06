@@ -13,7 +13,6 @@ use tracing_subscriber::FmtSubscriber;
 use rp::models::{Config, ConfigItem};
 use tabwriter::TabWriter;
 
-
 #[macro_use]
 pub mod rp_macros;
 pub use rp_macros::*;
@@ -77,6 +76,30 @@ enum Commands {
 /// This function will return an error if:
 /// * The file cannot be opened
 /// * The JSON in the file cannot be parsed into a Config struct
+///
+/// # Example
+///
+/// ```
+/// use rp::models::{Config, ConfigItem};
+/// use std::fs::File;
+/// use std::io::Write;
+/// use tempfile::NamedTempFile;
+///
+/// // Create a temporary JSON file
+/// let mut temp_file = NamedTempFile::new().unwrap();
+/// writeln!(temp_file, r#"{{
+///     "stored": "local",
+///     "config_version": "1.0",
+///     "project_name": "test_project",
+///     "config_name": "test_config",
+///     "is_test": true,
+///     "items": []
+/// }}"#).unwrap();
+///
+/// // Parse the config file
+/// let config = rp::parse_config_file(temp_file.path().to_str().unwrap());
+/// assert!(config.is_ok());
+/// ```
 fn parse_config_file(file_path: &str) -> Result<Config> {
     let file = File::open(file_path)
         .with_context(|| format!("Failed to open file: {}", file_path))?;
@@ -86,7 +109,6 @@ fn parse_config_file(file_path: &str) -> Result<Config> {
     
     Ok(config)
 }
-
 
 mod commands;
 
@@ -105,6 +127,28 @@ mod commands;
 /// * Command-line argument parsing fails
 /// * Config file parsing fails
 /// * Executing a command fails
+///
+/// # Example
+///
+/// ```
+/// use rp::Cli;
+/// use clap::Parser;
+/// use std::ffi::OsString;
+///
+/// // Simulate command-line arguments
+/// let args = vec![
+///     OsString::from("rp"),
+///     OsString::from("collect"),
+///     OsString::from("-f"),
+///     OsString::from("config.json"),
+/// ];
+///
+/// // Parse CLI arguments
+/// let cli = Cli::parse_from(args);
+///
+/// // Check if parsing was successful
+/// assert_eq!(cli.input_file, Some("config.json".to_string()));
+/// ```
 fn main() -> Result<()> {
     let cli = Cli::parse();
     
