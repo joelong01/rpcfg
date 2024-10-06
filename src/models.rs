@@ -1,9 +1,8 @@
-// src/models.rs
-use std::collections::HashMap;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Clone, Deserialize, Debug)]
 pub struct ConfigItem {
+    pub key: String,
     pub description: String,
     #[serde(default)]
     pub shellscript: String,
@@ -20,6 +19,9 @@ pub struct ConfigItem {
 pub struct Config {
     pub stored: String,
     pub config_version: String,
-    #[serde(flatten)]
-    pub items: HashMap<String, ConfigItem>,
+    pub project_name: String,
+    pub config_name: String,
+    #[serde(default)]
+    pub is_test: bool,
+    pub items: Vec<ConfigItem>,
 }

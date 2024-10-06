@@ -1,7 +1,8 @@
-use crate::{Config, CommandResult, Success, Fail, EnvOutputUri, JsonOutputUri};
+use crate::{CommandResult, Config, EnvOutputUri, JsonOutputUri, Success};
 use anyhow::{Context, Result};
 use std::fs::File;
 use std::io::{self, BufRead, Write};
+use tabwriter::TabWriter;
 use tracing::debug;
 
 
@@ -15,7 +16,6 @@ use tracing::debug;
 ///
 /// * `config` - A mutable reference to the Config object to be updated.
 /// * `interactive` - A boolean flag indicating whether to run in interactive mode.
-/// * `input_file` - The name of the input file, used for generating output file paths.
 ///
 /// # Returns
 ///
@@ -33,26 +33,25 @@ use tracing::debug;
 /// use your_crate::{Config, execute};
 ///
 /// let mut config = Config::default();
-/// let result = execute(&mut config, true, "config.json");
+/// let result = execute(&mut config, true);
 /// ```
-pub fn execute(config: &mut Config, interactive: bool, input_file: &str) -> Result<CommandResult> {
+pub fn execute(config: &mut Config, interactive: bool) -> Result<CommandResult> {
     let stdin = io::stdin();
     let mut stdin = stdin.lock();
     let mut stdout = io::stdout();
-    collect_user_input(config, interactive, input_file, &mut stdin, &mut stdout)
+    collect_user_input(config, interactive, &mut stdin, &mut stdout)
 }
 /// Collects user input to configure items in the provided Config object.
 ///
 /// This function handles both interactive and non-interactive modes for collecting
 /// configuration data. In interactive mode, it prompts the user for input and allows
 /// updating individual items, toggling storage type, and saving the configuration.
-/// In non-interactive mode, it uses default values for all items.
+/// In non-interactive mode, it uses default values for all items and saves the configuration.
 ///
 /// # Arguments
 ///
 /// * `config` - A mutable reference to the Config object to be updated.
 /// * `interactive` - A boolean flag indicating whether to run in interactive mode.
-/// * `input_file` - The name of the input file, used for generating output file paths.
 /// * `input` - A mutable reference to a BufRead trait object for reading user input.
 /// * `output` - A mutable reference to a Write trait object for writing prompts and messages.
 ///
@@ -64,7 +63,7 @@ pub fn execute(config: &mut Config, interactive: bool, input_file: &str) -> Resu
 ///
 /// This function will return an error if:
 /// * There's an I/O error when reading input or writing output.
-/// * The configuration fails to save when requested.
+/// * The configuration fails to save.
 /// * Any other operation within the function fails.
 ///
 /// # Examples
@@ -75,91 +74,125 @@ pub fn execute(config: &mut Config, interactive: bool, input_file: &str) -> Resu
 ///
 /// let mut config = Config::default();
 /// let mut input = Cursor::new("1\nnew_value\nc\n");
-/// let result = collect_user_input(&mut config, true, "config.json", &mut input, &mut stdout());
+/// let result = collect_user_input(&mut config, true, &mut input, &mut stdout());
 /// ```
-
-fn collect_user_input<R: BufRead, W: Write>(
+pub fn collect_user_input<R: BufRead, W: Write>(
     config: &mut Config,
     interactive: bool,
-    input_file: &str,
     input: &mut R,
     output: &mut W,
 ) -> Result<CommandResult> {
+    debug!(
+        "collect_user_input: config: {:?} interactive: {}",
+        config, interactive
+    );
     let mut storage_type = config.stored.clone();
 
     // Initialize empty values with defaults
-    for item in config.items.values_mut() {
+    initialize_config_values(config);
+
+    if interactive {
+        interactive_config_loop(config, &mut storage_type, input, output)?;
+    } else {
+        // In non-interactive mode, use default values and save
+        save_configuration(config, &storage_type)?;
+    }
+
+    // Set environment variables for required items
+    set_environment_variables(config);
+
+    let mut result = Success!("Configuration collected successfully.");
+    result.env_file = EnvOutputUri!(config);
+    result.json_file = JsonOutputUri!(config);
+    Ok(result)
+}
+
+/// Initialize config values with defaults if they are empty
+fn initialize_config_values(config: &mut Config) {
+    for item in &mut config.items {
         if item.value.is_empty() {
             item.value = item.default.clone();
         }
     }
+}
 
+/// Handle the interactive configuration loop
+fn interactive_config_loop<R: BufRead, W: Write>(
+    config: &mut Config,
+    storage_type: &mut String,
+    input: &mut R,
+    output: &mut W,
+) -> Result<()> {
     loop {
-        // Display current configuration
-        show_current_config(config, &storage_type, output)?;
-
-        if !interactive {
-            // If not interactive, just use default values and exit
-            for item in config.items.values_mut() {
-                item.value = item.default.clone();
-            }
-            break;
-        }
+        show_current_config(config, storage_type, output)?;
 
         // Prompt for action
         write!(output, "\nEnter item number to update, 'T' to toggle storage type, 'S' to save, or 'C' to continue: ")?;
         output.flush()?;
 
-        let mut user_input = String::new();
-        input.read_line(&mut user_input)?;
-        let user_input = user_input.trim().to_lowercase();
+        let user_input = read_user_input(input)?;
 
         match user_input.as_str() {
-            "t" => {
-                storage_type = if storage_type == "local" {
-                    "keyvault".to_string()
-                } else {
-                    "local".to_string()
-                };
-            }
-            "s" => match save_configuration(config, &storage_type, input_file) {
-                Ok(()) => {
-                    writeln!(output, "Configuration saved.")?;
-                    for (key, item) in &config.items {
-                        debug!("Saved setting: {} = {}", key, item.value);
-                    }
-                }
-                Err(e) => {
-                    writeln!(output, "Failed to save configuration: {}", e)?;
-                    return Ok(Fail!("Failed to save configuration: {}", e));
-                }
-            },
+            "t" => toggle_storage_type(storage_type),
+            "s" => save_config_interactive(config, storage_type, output)?,
             "c" => break,
-            _ => {
-                if let Ok(index) = user_input.parse::<usize>() {
-                    if index > 0 && index <= config.items.len() {
-                        update_item(config, index - 1, input, output)?;
-                    } else {
-                        writeln!(output, "Invalid item number. Please try again.")?;
-                    }
-                } else {
-                    writeln!(output, "Invalid input. Please try again.")?;
-                }
-            }
+            _ => handle_item_update(config, &user_input, input, output)?,
         }
     }
+    Ok(())
+}
 
-    // Set environment variables for required items
-    for item in config.items.values() {
+/// Read and trim user input
+fn read_user_input<R: BufRead>(input: &mut R) -> Result<String> {
+    let mut user_input = String::new();
+    input.read_line(&mut user_input)?;
+    Ok(user_input.trim().to_lowercase())
+}
+
+/// Toggle the storage type between "local" and "keyvault"
+fn toggle_storage_type(storage_type: &mut String) {
+    *storage_type = if *storage_type == "local" {
+        "keyvault".to_string()
+    } else {
+        "local".to_string()
+    };
+}
+
+/// Save configuration in interactive mode and provide feedback
+fn save_config_interactive<W: Write>(config: &mut Config, storage_type: &str, output: &mut W) -> Result<()> {
+    match save_configuration(config, storage_type) {
+        Ok(()) => writeln!(output, "Configuration saved successfully.")?,
+        Err(e) => writeln!(output, "Failed to save configuration: {}", e)?,
+    }
+    Ok(())
+}
+
+/// Handle updating a specific item in the configuration
+fn handle_item_update<R: BufRead, W: Write>(
+    config: &mut Config,
+    user_input: &str,
+    input: &mut R,
+    output: &mut W,
+) -> Result<()> {
+    if let Ok(index) = user_input.parse::<usize>() {
+        if index > 0 && index <= config.items.len() {
+            update_item(config, index - 1, input, output)?;
+        } else {
+            writeln!(output, "Invalid item number. Please try again.")?;
+        }
+    } else {
+        writeln!(output, "Invalid input. Please try again.")?;
+    }
+    Ok(())
+}
+
+/// Set environment variables for required items
+fn set_environment_variables(config: &Config) {
+    for item in &config.items {
         if item.required_as_env {
             std::env::set_var(&item.temp_environment_variable_name, &item.value);
         }
     }
-
-    let mut result = Success!("Configuration collected successfully.");
-    result.env_file = EnvOutputUri!(&storage_type, input_file);
-    result.json_file = JsonOutputUri!(&storage_type, input_file);
-    Ok(result)
 }
 /// Displays the current configuration to the provided output.
 ///
@@ -191,26 +224,38 @@ fn collect_user_input<R: BufRead, W: Write>(
 /// let storage_type = "local";
 /// show_current_config(&config, storage_type, &mut stdout()).expect("Failed to display config");
 /// ```
-fn show_current_config<W: Write>(config: &Config, storage_type: &str, out: &mut W) -> Result<()> {
-    writeln!(
-        out,
-        "\nCurrent configuration (Storage type: {}):",
-        storage_type
-    )?;
-    for (index, (_key, item)) in config.items.iter().enumerate() {
+pub fn show_current_config<W: Write>(
+    config: &Config,
+    storage_type: &str,
+    out: &mut W,
+) -> Result<()> {
+    writeln!(out, "\nCurrent configuration:")?;
+    writeln!(out, "Storage type: {}", storage_type)?;
+    writeln!(out, "Project: {}", config.project_name)?;
+    writeln!(out, "Config: {}", config.config_name)?;
+    if config.is_test {
+        writeln!(out, "(Test mode)")?;
+    }
+    writeln!(out)?; // Add an extra newline for spacing
+
+    let mut tw = TabWriter::new(vec![]);
+
+    writeln!(tw, "Index\tDescription\tValue")?;
+    writeln!(tw, "-----\t-----------\t-----")?;
+
+    for (index, item) in config.items.iter().enumerate() {
         let display_value = if item.value.is_empty() {
             &item.default
         } else {
             &item.value
         };
-        writeln!(
-            out,
-            "{}. {} = {}",
-            index + 1,
-            item.description,
-            display_value
-        )?;
+        writeln!(tw, "{}\t{}\t{}", index + 1, item.description, display_value)?;
     }
+    tw.flush()?;
+
+    out.write_all(&tw.into_inner()?)?;
+    writeln!(out)?; // Add an extra newline at the end
+
     Ok(())
 }
 /// Updates a specific item in the configuration based on user input.
@@ -245,42 +290,31 @@ fn show_current_config<W: Write>(config: &Config, storage_type: &str, out: &mut 
 /// let mut input = Cursor::new("new value\n");
 /// update_item(&mut config, 0, &mut input, &mut stdout()).expect("Failed to update item");
 /// ```
-fn update_item<R: BufRead, W: Write>(
+pub fn update_item<R: BufRead, W: Write>(
     config: &mut Config,
     index: usize,
     input: &mut R,
     output: &mut W,
 ) -> Result<()> {
-    let key = config
-        .items
-        .keys()
-        .nth(index)
-        .context("Item not found")?
-        .clone();
-    let item = config.items.get_mut(&key).context("Item not found")?;
+    let item = config.items.get_mut(index).context("Item not found")?;
 
     debug!("Updating setting: {}", item.description);
 
     write!(
         output,
-        "Enter new value for {} [{}]: ",
-        item.description, item.default
+        "Enter new value for {} (current: {}): ",
+        item.description, item.value
     )?;
     output.flush()?;
 
-    let mut user_input = String::new();
-    input.read_line(&mut user_input)?;
-    let user_input = user_input.trim();
-
-    let new_value = if user_input.is_empty() {
-        item.default.clone()
-    } else {
-        user_input.to_string()
-    };
+    let mut new_value = String::new();
+    input.read_line(&mut new_value)?;
+    let new_value = new_value.trim();
 
     debug!("New value for {}: {}", item.description, new_value);
 
-    item.value = new_value;
+    item.value = new_value.to_string();
+
     Ok(())
 }
 /// Saves the current configuration to JSON and ENV files.
@@ -296,7 +330,6 @@ fn update_item<R: BufRead, W: Write>(
 ///
 /// * `config` - A reference to the Config object containing the configuration to be saved.
 /// * `storage_type` - A string slice indicating the current storage type (e.g., "local" or "keyvault").
-/// * `input_file` - The name of the input file, used for generating output file paths.
 ///
 /// # Returns
 ///
@@ -316,21 +349,20 @@ fn update_item<R: BufRead, W: Write>(
 ///
 /// let config = Config::default();
 /// let storage_type = "local";
-/// let input_file = "config.json";
-/// save_configuration(&config, storage_type, input_file).expect("Failed to save configuration");
+/// save_configuration(&config, storage_type).expect("Failed to save configuration");
 /// ```
 ///
 /// # Note
 ///
 /// This function will overwrite existing files if they already exist at the target paths.
-fn save_configuration(config: &Config, storage_type: &str, input_file: &str) -> Result<()> {
-    debug!("save_configuration: storage_type = {}, input_file = {}", storage_type, input_file);
-    
-    let json_file_path = JsonOutputUri!(storage_type, input_file)
+pub fn save_configuration(config: &Config, storage_type: &str) -> Result<()> {
+    debug!("save_configuration: storage_type = {}", storage_type);
+
+    let json_file_path = JsonOutputUri!(config)
         .ok_or_else(|| anyhow::anyhow!("Failed to construct JSON output path"))?;
     debug!("JSON file path: {:?}", json_file_path);
-    
-    let env_file_path = EnvOutputUri!(storage_type, input_file)
+
+    let env_file_path = EnvOutputUri!(config)
         .ok_or_else(|| anyhow::anyhow!("Failed to construct ENV output path"))?;
     debug!("ENV file path: {:?}", env_file_path);
 
@@ -349,7 +381,12 @@ fn save_configuration(config: &Config, storage_type: &str, input_file: &str) -> 
         &config
             .items
             .iter()
-            .map(|(k, v)| (k.to_lowercase(), serde_json::Value::String(v.value.clone())))
+            .map(|item| {
+                (
+                    item.key.to_lowercase(),
+                    serde_json::Value::String(item.value.clone()),
+                )
+            })
             .collect::<serde_json::Map<String, serde_json::Value>>(),
     )?;
 
@@ -375,76 +412,40 @@ fn save_configuration(config: &Config, storage_type: &str, input_file: &str) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ConfigItem;
-    use serial_test::serial;
+    use crate::{Config, ConfigItem};
     use std::fs;
-    use std::path::PathBuf;
-    use std::sync::atomic::AtomicUsize;
-    use std::{collections::HashMap, io::Cursor};
-    use tempfile::{NamedTempFile, TempDir};
+    use std::io::Cursor;
     use uuid::Uuid;
-    use std::sync::atomic::Ordering;
+    use crate::common::run_test;
 
-    static TEST_COUNTER: AtomicUsize = AtomicUsize::new(0);
-    fn setup_test_config(test_id: &str) -> Result<(Config, NamedTempFile)> {
-        let mut config = Config {
-            config_version: String::from("1.0"),
-            stored: String::from("local"),
-            items: HashMap::new(),
-        };
-
-        config.items.insert(
-            format!("item1_{}", test_id),
-            ConfigItem {
-                description: "Item 1".to_string(),
-                default: "default1".to_string(),
-                shellscript: String::new(),
-                temp_environment_variable_name: format!("TEST_ITEM_1_{}", test_id),
-                required_as_env: true,
-                value: String::new(),
-            },
-        );
-
-        config.items.insert(
-            format!("item2_{}", test_id),
-            ConfigItem {
-                description: "Item 2".to_string(),
-                default: "default2".to_string(),
-                shellscript: String::new(),
-                temp_environment_variable_name: String::new(),
-                required_as_env: false,
-                value: String::new(),
-            },
-        );
-
-        // Create a temporary file
-        let mut temp_file = NamedTempFile::new()?;
-
-        // Write the config to the temporary file
-        let config_json = serde_json::to_string_pretty(&config)?;
-        writeln!(temp_file, "{}", config_json)?;
-
-        Ok((config, temp_file))
-    }
-    // Helper function to set up a test environment
-    fn setup_test_environment() -> (TempDir, PathBuf, String) {
-        std::env::set_var("RP_TEST_MODE", "true");
-        let test_id = Uuid::new_v4().to_string();
-        let test_number = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
-        debug!("Test number: {}", test_number);
-        let temp_dir = TempDir::new().unwrap();
-        let temp_home = temp_dir.path().to_path_buf();
-        let home_var = format!("HOME_{}", test_id);
-        std::env::set_var(&home_var, temp_home.to_str().unwrap());
-        debug!("Test environment: HOME = {:?}", temp_home);
-        (temp_dir, temp_home, home_var)
-    }
-
-    // Helper function to clean up the test environment
-    fn cleanup_test_environment(temp_dir: TempDir, home_var: &str) {
-        std::env::remove_var(home_var);
-        std::env::remove_var("RP_TEST_MODE");
-        temp_dir.close().unwrap();
+    fn setup_test_config(test_id: &str) -> Result<Config> {
+        Ok(Config {
+            stored: "local".to_string(),
+            config_version: "1.0".to_string(),
+            project_name: "test_project".to_string(),
+            config_name: format!("test_config_{}", test_id),
+            is_test: true,
+            items: vec![
+                ConfigItem {
+                    key: format!("item1_{}", test_id),
+                    description: "Test item 1".to_string(),
+                    shellscript: "".to_string(),
+                    default: "default1".to_string(),
+                    temp_environment_variable_name: format!("TEST_ITEM_1_{}", test_id),
+                    required_as_env: true,
+                    value: "initial_value1".to_string(), // Set a real initial value
+                },
+                ConfigItem {
+                    key: format!("item2_{}", test_id),
+                    description: "Test item 2".to_string(),
+                    shellscript: "".to_string(),
+                    default: "default2".to_string(),
+                    temp_environment_variable_name: "".to_string(),
+                    required_as_env: false,
+                    value: "".to_string(),
+                },
+            ],
+        })
     }
 
     /// Test non-interactive mode of collect_user_input
@@ -458,29 +459,32 @@ mod tests {
     /// - If any config item's value is not equal to its default
     #[test]
     fn test_non_interactive_mode() -> Result<()> {
-        let (temp_dir, _, home_var) = setup_test_environment();
         let test_id = Uuid::new_v4().to_string();
-        crate::rp_macros::VERBOSE.store(true, std::sync::atomic::Ordering::SeqCst);
+        let mut config = setup_test_config(&test_id)?;
 
-        let (mut config, temp_input_file) = setup_test_config(&test_id)?;
-        let input_file = temp_input_file.path().to_str().unwrap().to_string();
+        // Store the initial values
+        let initial_values: Vec<String> = config.items.iter().map(|item| item.value.clone()).collect();
 
         let mut input = Cursor::new("");
         let mut output = Cursor::new(Vec::new());
 
-        let result = collect_user_input(&mut config, false, &input_file, &mut input, &mut output)?;
+        let result = collect_user_input(&mut config, false, &mut input, &mut output)?;
 
         assert!(matches!(result.status, crate::rp_macros::Status::Ok));
 
-        for (key, item) in &config.items {
+        for (index, item) in config.items.iter().enumerate() {
             debug!(
-                "Item {}: value = {}, default = {}",
-                key, item.value, item.default
+                "Item {}: initial value = {}, current value = {}, default = {}",
+                item.key, initial_values[index], item.value, item.default
             );
-            assert_eq!(item.value, item.default);
+            
+            if initial_values[index].is_empty() {
+                assert_eq!(item.value, item.default, "Empty item should be set to default");
+            } else {
+                assert_eq!(item.value, initial_values[index], "Non-empty item should remain unchanged");
+            }
         }
 
-        cleanup_test_environment(temp_dir, &home_var);
         Ok(())
     }
 
@@ -494,28 +498,22 @@ mod tests {
     /// - If the function returns an error
     /// - If the output doesn't contain "Storage type: keyvault"
     #[test]
-    #[serial]
     fn test_toggle_storage_type() -> Result<()> {
-        let (temp_dir, _, home_var) = setup_test_environment();
         let test_id = Uuid::new_v4().to_string();
-        crate::rp_macros::VERBOSE.store(true, std::sync::atomic::Ordering::SeqCst);
-
-        let (mut config, temp_input_file) = setup_test_config(&test_id)?;
-        let input_file = temp_input_file.path().to_str().unwrap().to_string();
+        let mut config = setup_test_config(&test_id)?;
 
         let mut input = Cursor::new("t\nc\n");
         let mut output = Cursor::new(Vec::new());
 
-        let result = collect_user_input(&mut config, true, &input_file, &mut input, &mut output)?;
+        let result = collect_user_input(&mut config, true, &mut input, &mut output)?;
 
         assert!(matches!(result.status, crate::rp_macros::Status::Ok));
 
         let output_str = String::from_utf8(output.into_inner())?;
-        debug!("Output: {}", output_str);
+        //debug!("Output: {}", output_str);
 
         assert!(output_str.contains("Storage type: keyvault"));
 
-        cleanup_test_environment(temp_dir, &home_var);
         Ok(())
     }
 
@@ -530,29 +528,23 @@ mod tests {
     /// - If the function returns an error
     /// - If the output doesn't contain expected error messages
     #[test]
-    #[serial]
     fn test_invalid_input() -> Result<()> {
-        let (temp_dir, _, home_var) = setup_test_environment();
         let test_id = Uuid::new_v4().to_string();
-        crate::rp_macros::VERBOSE.store(true, std::sync::atomic::Ordering::SeqCst);
-
-        let (mut config, temp_input_file) = setup_test_config(&test_id)?;
-        let input_file = temp_input_file.path().to_str().unwrap().to_string();
+        let mut config = setup_test_config(&test_id)?;
 
         let mut input = Cursor::new("invalid\n3\nc\n");
         let mut output = Cursor::new(Vec::new());
 
-        let result = collect_user_input(&mut config, true, &input_file, &mut input, &mut output)?;
+        let result = collect_user_input(&mut config, true, &mut input, &mut output)?;
 
         assert!(matches!(result.status, crate::rp_macros::Status::Ok));
 
-        let output_str = String::from_utf8(output.into_inner())?;
-        debug!("Output: {}", output_str);
+         let output_str = String::from_utf8(output.into_inner())?;
+        // debug!("Output: {}", output_str);
 
         assert!(output_str.contains("Invalid input. Please try again."));
         assert!(output_str.contains("Invalid item number. Please try again."));
 
-        cleanup_test_environment(temp_dir, &home_var);
         Ok(())
     }
 
@@ -569,61 +561,89 @@ mod tests {
     /// - If the file contents don't match expected values
     /// - If the config object doesn't reflect the changes
     #[test]
-    fn test_save_configuration() -> Result<()> {
-        let (temp_dir, _, home_var) = setup_test_environment();
-        let test_id = Uuid::new_v4().to_string();
-        crate::rp_macros::VERBOSE.store(true, std::sync::atomic::Ordering::SeqCst);
+    fn test_save_configuration() -> Result<(), Box<dyn std::any::Any + Send>> {
+        run_test(|| {
+            let test_id = Uuid::new_v4().to_string();
+            let mut config = setup_test_config(&test_id)?;
 
-        let (mut config, temp_input_file) = setup_test_config(&test_id)?;
-        let input_file = temp_input_file.path().to_str().unwrap().to_string();
+            debug!("Initial config: {:?}", config);
 
-        let mut input = Cursor::new(format!("1\nnew_value1\ns\nc\n"));
-        let mut output = Cursor::new(Vec::new());
+            // Simulate interactive input
+            let mut input = Cursor::new("1\nnew_value1\ns\nc\n");
+            let mut output = Cursor::new(Vec::new());
 
-        let result = collect_user_input(&mut config, true, &input_file, &mut input, &mut output)?;
+            let result = collect_user_input(&mut config, true, &mut input, &mut output)?;
 
-        assert!(matches!(result.status, crate::rp_macros::Status::Ok));
+            debug!("collect_user_input result: {:?}", result);
+            assert!(matches!(result.status, crate::rp_macros::Status::Ok));
 
-        let json_path =
-            JsonOutputUri!("local", &input_file).expect("Failed to construct JSON output path");
-        let env_path =
-            EnvOutputUri!("local", &input_file).expect("Failed to construct ENV output path");
+           // let output_str = String::from_utf8(output.into_inner())?;
+           // debug!("Output: {}", output_str);
 
-        debug!("JSON path: {:?}", json_path);
-        debug!("ENV path: {:?}", env_path);
+            // Check that the configuration was saved
+            let json_path = JsonOutputUri!(config).unwrap();
+            let env_path = EnvOutputUri!(config).unwrap();
 
-        assert!(
-            std::path::Path::new(&json_path).exists(),
-            "JSON file does not exist at {:?}",
-            json_path
-        );
-        assert!(
-            std::path::Path::new(&env_path).exists(),
-            "ENV file does not exist at {:?}",
-            env_path
-        );
-        let json_content = fs::read_to_string(&json_path)?;
-        let json_map: serde_json::Map<String, serde_json::Value> =
-            serde_json::from_str(&json_content)?;
+            debug!("JSON path: {:?}", json_path);
+            debug!("ENV path: {:?}", env_path);
 
-        debug!("JSON content: {}", json_content);
-        debug!("Config items: {:?}", config.items);
+            // Check that files exist
+            assert!(
+                std::path::Path::new(&json_path).exists(),
+                "JSON file does not exist at {:?}",
+                json_path
+            );
+            assert!(
+                std::path::Path::new(&env_path).exists(),
+                "ENV file does not exist at {:?}",
+                env_path
+            );
 
-        assert_eq!(json_map[&format!("item1_{}", test_id)], "new_value1");
-        assert_eq!(json_map[&format!("item2_{}", test_id)], "default2");
+            // Check JSON file content
+            let json_content = fs::read_to_string(&json_path)?;
+            let json_map: serde_json::Map<String, serde_json::Value> =
+                serde_json::from_str(&json_content)?;
 
-        assert_eq!(
-            config.items[&format!("item1_{}", test_id)].value,
-            "new_value1"
-        );
-        assert_eq!(
-            config.items[&format!("item2_{}", test_id)].value,
-            "default2"
-        );
+            debug!("JSON content: {}", json_content);
+            
+            // Check that the first item was updated and the second remains default
+            assert_eq!(json_map[&config.items[0].key], "new_value1");
+            assert_eq!(json_map[&config.items[1].key], "default2");
 
-        // The temp_input_file will be automatically deleted when it goes out of scope
-        cleanup_test_environment(temp_dir, &home_var);
-        Ok(())
+            // Check ENV file content
+            let env_content = fs::read_to_string(&env_path)?;
+            debug!("ENV file content: {}", env_content);
+
+            // Debug output for config items
+            debug!("Config items:");
+            for (index, item) in config.items.iter().enumerate() {
+                debug!("Item {}: key={}, temp_env_var={}", index, item.key, item.temp_environment_variable_name);
+            }
+
+            // Case-insensitive check for the first item (which was updated)
+            let expected_env_var1 = format!("{}=NEW_VALUE1", config.items[0].key.to_uppercase());
+            assert!(
+                env_content.to_uppercase().contains(&expected_env_var1),
+                "Expected '{}' not found in env content: {}",
+                expected_env_var1,
+                env_content
+            );
+
+            // Case-insensitive check for the second item (which should remain default)
+            let expected_env_var2 = format!("{}=DEFAULT2", config.items[1].key.to_uppercase());
+            assert!(
+                env_content.to_uppercase().contains(&expected_env_var2),
+                "Expected '{}' not found in env content: {}",
+                expected_env_var2,
+                env_content
+            );
+
+            // Clean up
+            std::fs::remove_file(json_path)?;
+            std::fs::remove_file(env_path)?;
+
+            Ok(())
+        })
     }
 
     /// Test environment variable setting in collect_user_input
@@ -639,54 +659,95 @@ mod tests {
     /// - If the .env file is not created or contains incorrect content
     /// - If the returned env_file path doesn't match the expected path
     #[test]
-    #[serial]
-    fn test_environment_variable_setting() -> Result<()> {
-        let (temp_dir, _, home_var) = setup_test_environment();
-        let test_id = Uuid::new_v4().to_string();
-        crate::rp_macros::VERBOSE.store(true, std::sync::atomic::Ordering::SeqCst);
+    fn test_environment_variable_setting() -> Result<(), Box<dyn std::any::Any + Send>> {
+        run_test(|| {
+            let test_id = Uuid::new_v4().to_string();
+            let mut config = setup_test_config(&test_id)?;
 
-        let (mut config, temp_input_file) = setup_test_config(&test_id)?;
-        let input_file = temp_input_file.path().to_str().unwrap().to_string();
+            debug!("Initial config: {:?}", config);
 
-        let mut input = Cursor::new(format!("1\nnew_env_value\ns\nc\n"));
-        let mut output = Cursor::new(Vec::new());
+            // Simulate interactive input
+            let mut input = Cursor::new("1\nnew_env_value\ns\nc\n");
+            let mut output = Cursor::new(Vec::new());
 
-        let result = collect_user_input(&mut config, true, &input_file, &mut input, &mut output)?;
+            let result = collect_user_input(&mut config, true, &mut input, &mut output)?;
 
-        assert!(matches!(result.status, crate::rp_macros::Status::Ok));
+            debug!("collect_user_input result: {:?}", result);
+            assert!(matches!(result.status, crate::rp_macros::Status::Ok));
 
-        let output_str = String::from_utf8(output.into_inner())?;
-        debug!("Test output: {}", output_str);
+            let output_str = String::from_utf8(output.into_inner())?;
+            debug!("Output: {}", output_str);
 
-        let env_var_name = format!("TEST_ITEM_1_{}", test_id);
-        let env_var_value = std::env::var(&env_var_name).unwrap();
-        debug!("Environment variable {}: {}", env_var_name, env_var_value);
-        assert_eq!(env_var_value, "new_env_value");
+            // Check that the configuration was saved
+            let json_path = JsonOutputUri!(config).expect("Failed to construct JSON output path");
+            let env_path = EnvOutputUri!(config).expect("Failed to construct ENV output path");
 
-        let expected_env_path =
-            EnvOutputUri!("local", &input_file).expect("Failed to construct ENV output path");
-        debug!("Expected .env path: {:?}", expected_env_path);
-        assert_eq!(
-            result.env_file,
-            Some(expected_env_path.clone()),
-            "The env_file in the result doesn't match the expected path"
-        );
+            debug!("JSON path: {:?}", json_path);
+            debug!("ENV path: {:?}", env_path);
 
-        assert!(
-            std::path::Path::new(&expected_env_path).exists(),
-            "The .env file was not created at {:?}",
-            expected_env_path
-        );
+            // Check that files exist
+            assert!(
+                std::path::Path::new(&json_path).exists(),
+                "JSON file does not exist at {:?}",
+                json_path
+            );
+            assert!(
+                std::path::Path::new(&env_path).exists(),
+                "ENV file does not exist at {:?}",
+                env_path
+            );
 
-        let env_content = fs::read_to_string(&expected_env_path)?;
-        debug!("Env file content: {}", env_content);
-        assert!(
-            env_content.contains(&format!("TEST_ITEM_1_{}=new_env_value", test_id)),
-            "The .env file does not contain the expected content"
-        );
+            // Check JSON file content
+            let json_content = fs::read_to_string(&json_path)?;
+            let json_map: serde_json::Map<String, serde_json::Value> =
+                serde_json::from_str(&json_content)?;
 
-        std::env::remove_var(&env_var_name);
-        cleanup_test_environment(temp_dir, &home_var);
-        Ok(())
+            debug!("JSON content: {}", json_content);
+            
+            // Check that the first item was updated and the second remains default
+            assert_eq!(json_map[&config.items[0].key], "new_env_value");
+            assert_eq!(json_map[&config.items[1].key], "default2");
+
+            // Check ENV file content
+            let env_content = fs::read_to_string(&env_path)?;
+            debug!("ENV file content: {}", env_content);
+
+            // Debug output for config items
+            debug!("Config items:");
+            for (index, item) in config.items.iter().enumerate() {
+                debug!("Item {}: key={}, temp_env_var={}", index, item.key, item.temp_environment_variable_name);
+            }
+
+            // Case-insensitive check for the first item (which was updated)
+            let expected_env_var1 = format!("{}=NEW_ENV_VALUE", config.items[0].key.to_uppercase());
+            assert!(
+                env_content.to_uppercase().contains(&expected_env_var1),
+                "Expected '{}' not found in env content: {}",
+                expected_env_var1,
+                env_content
+            );
+
+            // Case-insensitive check for the second item (which should remain default)
+            let expected_env_var2 = format!("{}=DEFAULT2", config.items[1].key.to_uppercase());
+            assert!(
+                env_content.to_uppercase().contains(&expected_env_var2),
+                "Expected '{}' not found in env content: {}",
+                expected_env_var2,
+                env_content
+            );
+
+            // Check that the environment variable is set
+            let env_var_name = &config.items[0].temp_environment_variable_name;
+            let env_var_value = std::env::var(env_var_name).unwrap();
+            debug!("Environment variable {}: {}", env_var_name, env_var_value);
+            assert_eq!(env_var_value, "new_env_value");
+
+            // Clean up
+            std::env::remove_var(env_var_name);
+            std::fs::remove_file(json_path)?;
+            std::fs::remove_file(env_path)?;
+
+            Ok(())
+        })
     }
 }

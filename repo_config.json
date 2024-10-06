@@ -1,25 +1,32 @@
 {
     "stored": "local",
     "config_version": "1.0",
-    "azureLocation": {
-        "description": "the location for your Azure Datacenter",
-        "shellscript": "",
-        "default": "uswest3",
-        "tempEnvironmentVariableName": "AZURE_LOCATION",
-        "requiredAsEnv": true
-    },
-    "username": {
-        "description": "the username for the test",
-        "shellscript": "",
-        "default": "test_user",
-        "tempEnvironmentVariableName": "",
-        "requiredAsEnv": false
-    },
-    "secret": {
-        "description": "the secret for the test",
-        "shellscript": "",
-        "default": "mysecret",
-        "tempEnvironmentVariableName": "",
-        "requiredAsEnv": false
-    }
+    "project_name": "rp",
+    "config_name": "rp_config",
+    "items": [
+        {
+            "key": "azureLocation",
+            "description": "the location for your Azure Datacenter",
+            "shellscript": "",
+            "default": "uswest3",
+            "temp_environment_variable_name": "AZURE_LOCATION",
+            "required_as_env": true
+        },
+        {
+            "key": "username",
+            "description": "the username for the test",
+            "shellscript": "",
+            "default": "test_user",
+            "temp_environment_variable_name": "",
+            "required_as_env": false
+        },
+        {
+            "key": "secret",
+            "description": "the secret for the test",
+            "shellscript": "",
+            "default": "mysecret",
+            "temp_environment_variable_name": "",
+            "required_as_env": false
+        }
+    ]
 }

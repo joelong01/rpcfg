@@ -13,16 +13,20 @@ use tracing_subscriber::FmtSubscriber;
 use rp::models::{Config, ConfigItem};
 use tabwriter::TabWriter;
 
+
 #[macro_use]
 pub mod rp_macros;
 pub use rp_macros::*;
+
+#[macro_use]
+pub mod common;
+pub use common::*;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Status {
     Ok,
     Error,
 }
-
 
 /// CLI tool for managing repository configurations
 #[derive(Parser)]
@@ -56,8 +60,9 @@ enum Commands {
     Show,
 }
 
-
 /// Parses a JSON configuration file into a Config struct.
+///
+/// This function reads a JSON file from the given path and deserializes it into a Config struct.
 ///
 /// # Arguments
 ///
@@ -66,48 +71,40 @@ enum Commands {
 /// # Returns
 ///
 /// * `Result<Config>` - The parsed Config struct or an error
+///
+/// # Errors
+///
+/// This function will return an error if:
+/// * The file cannot be opened
+/// * The JSON in the file cannot be parsed into a Config struct
 fn parse_config_file(file_path: &str) -> Result<Config> {
     let file = File::open(file_path)
         .with_context(|| format!("Failed to open file: {}", file_path))?;
     let reader = BufReader::new(file);
     let config: Config = serde_json::from_reader(reader)
         .with_context(|| format!("Failed to parse JSON from file: {}", file_path))?;
+    
     Ok(config)
 }
 
-/// Displays the configuration table to the specified output.
-///
-/// # Arguments
-///
-/// * `config` - A reference to the Config struct containing the configuration data
-/// * `out` - A mutable reference to a Write trait object for output
-///
-/// # Returns
-///
-/// * `Result<()>` - Ok if the table was successfully displayed, Err otherwise
-fn show_config_table<W: Write>(config: &Config, out: &mut W) -> Result<()> {
-    let mut tw = TabWriter::new(vec![]);
-
-    writeln!(tw, "Index\tDescription\tValue")?;
-    writeln!(tw, "-----\t-----------\t-------------")?;
-    
-    // Collect items into a vector and sort by index
-    let mut items: Vec<_> = config.items.iter().collect();
-    items.sort_by(|a, b| a.0.cmp(b.0));
-
-    for (index, (_, item)) in items.iter().enumerate() {
-        let display_value = if item.value.is_empty() { &item.default } else { &item.value };
-        writeln!(tw, "{}\t{}\t{}", index + 1, item.description, display_value)?;
-    }
-    tw.flush()?;
-
-    out.write_all(&tw.into_inner()?)?;
-    write!(out, "\nValues stored {}.", config.stored)?;
-    Ok(())
-}
 
 mod commands;
 
+/// The main entry point for the CLI application.
+///
+/// This function parses command-line arguments, sets up logging, loads the configuration,
+/// and executes the appropriate command based on user input.
+///
+/// # Returns
+///
+/// * `Result<()>` - Ok if the program runs successfully, Err otherwise
+///
+/// # Errors
+///
+/// This function will return an error if:
+/// * Command-line argument parsing fails
+/// * Config file parsing fails
+/// * Executing a command fails
 fn main() -> Result<()> {
     let cli = Cli::parse();
     
@@ -128,10 +125,11 @@ fn main() -> Result<()> {
         return Err(anyhow::anyhow!("No config file provided. Use -f or --input-file to specify a config file."));
     };
 
+    // Execute the appropriate command
     match cli.command {
         Commands::Collect => {
             info!("Executing Collect command");
-            commands::collect::execute(&mut config, cli.interactive, cli.input_file.as_ref().unwrap())?;
+            commands::collect::execute(&mut config, cli.interactive)?;
             info!("User input collected");
         }
         Commands::Delete => {
@@ -144,7 +142,8 @@ fn main() -> Result<()> {
         }
         Commands::Show => {
             info!("Executing Show command");
-            show_config_table(&config, &mut stderr())?;
+            // to do - pull the input values and display them in a table
+           
         }
     }
 
@@ -156,55 +155,106 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::str::from_utf8;
+    use crate::{Config, ConfigItem};
+    use commands::collect::collect_user_input;
+    use std::fs;
+    use std::io::Cursor;
+    use uuid::Uuid;
 
-    #[test]
-    fn test_show_config_table() -> Result<()> {
-        // Create a sample config
+    fn setup_test_config(test_id: &str) -> Result<Config> {
         let config = Config {
-            stored: "locally".to_string(),
-            config_version: "1.0".to_string(),
-            items: [
-                ("azureLocation".to_string(), ConfigItem {
-                    description: "the location for your Azure Datacenter".to_string(),
+            stored: String::from("local"),
+            config_version: String::from("1.0"),
+            project_name: String::from("test_project"),
+            config_name: format!("test_config_{}", test_id), // Salted with test_id
+            is_test: true,
+            items: vec![
+                ConfigItem {
+                    key: format!("item1_{}", test_id),
+                    description: "Test item 1".to_string(),
                     shellscript: "".to_string(),
-                    default: "uswest3".to_string(),
-                    temp_environment_variable_name: "AZURE_LOCATION".to_string(),
+                    default: "default1".to_string(),
+                    temp_environment_variable_name: format!("TEST_ITEM_1_{}", test_id),
                     required_as_env: true,
-                    value: "".to_string(), 
-                }),
-                ("username".to_string(), ConfigItem {
-                    description: "the username for the test".to_string(),
+                    value: String::new(),
+                },
+                ConfigItem {
+                    key: format!("item2_{}", test_id),
+                    description: "Test item 2".to_string(),
                     shellscript: "".to_string(),
-                    default: "test_user".to_string(),
-                    temp_environment_variable_name: "".to_string(),
+                    default: "default2".to_string(),
+                    temp_environment_variable_name: String::new(),
                     required_as_env: false,
-                    value: "".to_string(), 
-                }),
-            ].into_iter().collect(),
+                    value: String::new(),
+                },
+            ],
         };
 
-        // Create a buffer to capture the output
-        let mut output = Vec::new();
+        Ok(config)
+    }
 
-        // Call the function
-        show_config_table(&config, &mut output)?;
+    #[test]
+    fn test_non_interactive_mode() -> Result<()> {
+        let test_id = Uuid::new_v4().to_string();
+        let mut config = setup_test_config(&test_id)?;
 
-        // Convert the output to a string
-        let output_str = from_utf8(&output)?;
+        let mut input = Cursor::new("");
+        let mut output = Cursor::new(Vec::new());
 
-        // Define the expected output
-        let expected_output = "\
-Index  Description                             Value
------  -----------                             -------------
-1      the location for your Azure Datacenter  uswest3
-2      the username for the test               test_user
+        let result = collect_user_input(&mut config, false, &mut input, &mut output)?;
 
-Values stored locally.";
+        assert!(matches!(result.status, crate::rp_macros::Status::Ok));
 
-        // Compare the actual output with the expected output
-        assert_eq!(output_str, expected_output);
+        for item in &config.items {
+            debug!(
+                "Item {}: value = {}, default = {}",
+                item.key, item.value, item.default
+            );
+            assert_eq!(item.value, item.default);
+        }
 
         Ok(())
     }
+
+    #[test]
+    fn test_toggle_storage_type() -> Result<()> {
+        let test_id = Uuid::new_v4().to_string();
+        let mut config = setup_test_config(&test_id)?;
+
+        let mut input = Cursor::new("t\nc\n");
+        let mut output = Cursor::new(Vec::new());
+
+        let result = collect_user_input(&mut config, true, &mut input, &mut output)?;
+
+        assert!(matches!(result.status, crate::rp_macros::Status::Ok));
+
+        let output_str = String::from_utf8(output.into_inner())?;
+        debug!("Output: {}", output_str);
+
+        assert!(output_str.contains("Storage type: keyvault"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_invalid_input() -> Result<()> {
+        let test_id = Uuid::new_v4().to_string();
+        let mut config = setup_test_config(&test_id)?;
+
+        let mut input = Cursor::new("invalid\n3\nc\n");
+        let mut output = Cursor::new(Vec::new());
+
+        let result = collect_user_input(&mut config, true, &mut input, &mut output)?;
+
+        assert!(matches!(result.status, crate::rp_macros::Status::Ok));
+
+        let output_str = String::from_utf8(output.into_inner())?;
+        debug!("Output: {}", output_str);
+
+        assert!(output_str.contains("Invalid input. Please try again."));
+        assert!(output_str.contains("Invalid item number. Please try again."));
+
+        Ok(())
+    }
+ 
 }

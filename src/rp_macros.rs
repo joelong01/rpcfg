@@ -33,17 +33,9 @@ macro_rules! get_home_dir {
 
 #[macro_export]
 macro_rules! get_rp_dir {
-    () => {{
-        if std::env::var("RP_TEST_MODE").is_ok() {
-            use std::sync::OnceLock;
-            static TEMP_DIR: OnceLock<tempfile::TempDir> = OnceLock::new();
-            Some(TEMP_DIR
-                .get_or_init(|| tempfile::TempDir::new().expect("Failed to create temp directory"))
-                .path()
-                .to_path_buf())
-        } else {
-            $crate::get_home_dir!().map(|home| home.join(".rp"))
-        }
+    ($config:expr) => {{
+        let root_dir = $crate::get_root_dir!($config);
+        root_dir.join(".rp")
     }};
 }
 
@@ -83,13 +75,13 @@ macro_rules! Fail {
 /// Macro for getting the JSON output file path
 #[macro_export]
 macro_rules! JsonOutputUri {
-    ($storage_type:expr, $input_file:expr) => {{
-        if $storage_type == "local" {
-            $crate::get_rp_dir!().and_then(|rp_dir| {
-                $crate::get_base_name!($input_file).map(|base_name| {
-                    rp_dir.join(format!("{}-values.json", base_name)).to_string_lossy().into_owned()
-                })
-            })
+    ($config:expr) => {{
+        if $config.stored == "local" {
+            Some($crate::get_rp_dir!($config)
+                .join(&$config.project_name)
+                .join(format!("{}_values.json", $config.config_name))
+                .to_string_lossy()
+                .into_owned())
         } else {
             None
         }
@@ -99,15 +91,26 @@ macro_rules! JsonOutputUri {
 /// Macro for getting the ENV output file path
 #[macro_export]
 macro_rules! EnvOutputUri {
-    ($storage_type:expr, $input_file:expr) => {{
-        if $storage_type == "local" {
-            $crate::get_rp_dir!().and_then(|rp_dir| {
-                $crate::get_base_name!($input_file).map(|base_name| {
-                    rp_dir.join(format!("{}.env", base_name)).to_string_lossy().into_owned()
-                })
-            })
+    ($config:expr) => {{
+        if $config.stored == "local" {
+            Some($crate::get_rp_dir!($config)
+                .join(&$config.project_name)
+                .join(format!("{}.env", $config.config_name))
+                .to_string_lossy()
+                .into_owned())
         } else {
             None
+        }
+    }};
+}
+
+#[macro_export]
+macro_rules! get_root_dir {
+    ($config:expr) => {{
+        if $config.is_test {
+            std::env::temp_dir()
+        } else {
+            $crate::get_home_dir!().expect("Failed to get home directory")
         }
     }};
 }
