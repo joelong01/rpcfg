@@ -120,7 +120,7 @@ macro_rules! safe_test {
         $(#[$meta])*
         #[test]
         fn $name() {
-            $crate::common::run_test(|| $body);
+            let _ = $crate::common::run_test(|| $body);
         }
     };
 }

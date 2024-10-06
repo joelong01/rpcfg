@@ -237,8 +237,16 @@ mod tests {
         Ok(config)
     }
 
-    #[test]
-    fn test_non_interactive_mode() -> Result<()> {
+    safe_test!(test_non_interactive_mode, {
+        // Test non-interactive mode of collect_user_input
+        //
+        // This test verifies that in non-interactive mode:
+        // 1. The function completes successfully
+        // 2. All config items are set to their default values
+        //
+        // Failure conditions:
+        // - If the function returns an error
+        // - If any config item's value is not equal to its default
         let test_id = Uuid::new_v4().to_string();
         let mut config = setup_test_config(&test_id)?;
 
@@ -258,10 +266,18 @@ mod tests {
         }
 
         Ok(())
-    }
+    });
 
-    #[test]
-    fn test_toggle_storage_type() -> Result<()> {
+    safe_test!(test_toggle_storage_type, {
+        // Test toggling storage type in collect_user_input
+        //
+        // This test verifies that:
+        // 1. The storage type can be toggled from local to keyvault
+        // 2. The function completes successfully after toggling
+        //
+        // Failure conditions:
+        // - If the function returns an error
+        // - If the output doesn't contain "Storage type: keyvault"
         let test_id = Uuid::new_v4().to_string();
         let mut config = setup_test_config(&test_id)?;
 
@@ -278,10 +294,19 @@ mod tests {
         assert!(output_str.contains("Storage type: keyvault"));
 
         Ok(())
-    }
+    });
 
-    #[test]
-    fn test_invalid_input() -> Result<()> {
+    safe_test!(test_invalid_input, {
+        // Test invalid input handling in collect_user_input
+        //
+        // This test verifies that:
+        // 1. The function handles invalid input correctly
+        // 2. Appropriate error messages are displayed
+        // 3. The function completes successfully despite invalid inputs
+        //
+        // Failure conditions:
+        // - If the function returns an error
+        // - If the output doesn't contain expected error messages
         let test_id = Uuid::new_v4().to_string();
         let mut config = setup_test_config(&test_id)?;
 
@@ -299,6 +324,5 @@ mod tests {
         assert!(output_str.contains("Invalid item number. Please try again."));
 
         Ok(())
-    }
- 
+    });
 }

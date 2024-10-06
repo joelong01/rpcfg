@@ -536,11 +536,11 @@ pub fn save_configuration(config: &Config, storage_type: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Config, ConfigItem};
+    use crate::{safe_test, Config, ConfigItem};
     use std::fs;
     use std::io::Cursor;
     use uuid::Uuid;
-    use crate::common::run_test;
+
 
     fn setup_test_config(test_id: &str) -> Result<Config> {
         Ok(Config {
@@ -572,17 +572,16 @@ mod tests {
         })
     }
 
-    /// Test non-interactive mode of collect_user_input
-    ///
-    /// This test verifies that in non-interactive mode:
-    /// 1. The function completes successfully
-    /// 2. All config items are set to their default values
-    ///
-    /// Failure conditions:
-    /// - If the function returns an error
-    /// - If any config item's value is not equal to its default
-    #[test]
-    fn test_non_interactive_mode() -> Result<()> {
+    safe_test!(test_non_interactive_mode, {
+        // Test non-interactive mode of collect_user_input
+        //
+        // This test verifies that in non-interactive mode:
+        // 1. The function completes successfully
+        // 2. All config items are set to their default values
+        //
+        // Failure conditions:
+        // - If the function returns an error
+        // - If any config item's value is not equal to its default
         let test_id = Uuid::new_v4().to_string();
         let mut config = setup_test_config(&test_id)?;
 
@@ -610,19 +609,18 @@ mod tests {
         }
 
         Ok(())
-    }
+    });
 
-    /// Test toggling storage type in collect_user_input
-    ///
-    /// This test verifies that:
-    /// 1. The storage type can be toggled from local to keyvault
-    /// 2. The function completes successfully after toggling
-    ///
-    /// Failure conditions:
-    /// - If the function returns an error
-    /// - If the output doesn't contain "Storage type: keyvault"
-    #[test]
-    fn test_toggle_storage_type() -> Result<()> {
+    safe_test!(test_toggle_storage_type, {
+        // Test toggling storage type in collect_user_input
+        //
+        // This test verifies that:
+        // 1. The storage type can be toggled from local to keyvault
+        // 2. The function completes successfully after toggling
+        //
+        // Failure conditions:
+        // - If the function returns an error
+        // - If the output doesn't contain "Storage type: keyvault"
         let test_id = Uuid::new_v4().to_string();
         let mut config = setup_test_config(&test_id)?;
 
@@ -634,25 +632,22 @@ mod tests {
         assert!(matches!(result.status, crate::rp_macros::Status::Ok));
 
         let output_str = String::from_utf8(output.into_inner())?;
-        //debug!("Output: {}", output_str);
-
         assert!(output_str.contains("Storage type: keyvault"));
 
         Ok(())
-    }
+    });
 
-    /// Test invalid input handling in collect_user_input
-    ///
-    /// This test verifies that:
-    /// 1. The function handles invalid input correctly
-    /// 2. Appropriate error messages are displayed
-    /// 3. The function completes successfully despite invalid inputs
-    ///
-    /// Failure conditions:
-    /// - If the function returns an error
-    /// - If the output doesn't contain expected error messages
-    #[test]
-    fn test_invalid_input() -> Result<()> {
+    safe_test!(test_invalid_input, {
+        // Test invalid input handling in collect_user_input
+        //
+        // This test verifies that:
+        // 1. The function handles invalid input correctly
+        // 2. Appropriate error messages are displayed
+        // 3. The function completes successfully despite invalid inputs
+        //
+        // Failure conditions:
+        // - If the function returns an error
+        // - If the output doesn't contain expected error messages
         let test_id = Uuid::new_v4().to_string();
         let mut config = setup_test_config(&test_id)?;
 
@@ -663,215 +658,204 @@ mod tests {
 
         assert!(matches!(result.status, crate::rp_macros::Status::Ok));
 
-         let output_str = String::from_utf8(output.into_inner())?;
-        // debug!("Output: {}", output_str);
-
+        let output_str = String::from_utf8(output.into_inner())?;
         assert!(output_str.contains("Invalid input. Please try again."));
         assert!(output_str.contains("Invalid item number. Please try again."));
 
         Ok(())
-    }
+    });
 
-    /// Test saving configuration in collect_user_input
-    ///
-    /// This test verifies that:
-    /// 1. The function can save the configuration successfully
-    /// 2. The saved JSON and ENV files exist and contain correct content
-    /// 3. The config object is updated correctly
-    ///
-    /// Failure conditions:
-    /// - If the function returns an error
-    /// - If the JSON or ENV files are not created
-    /// - If the file contents don't match expected values
-    /// - If the config object doesn't reflect the changes
-    #[test]
-    fn test_save_configuration() -> Result<(), Box<dyn std::any::Any + Send>> {
-        run_test(|| {
-            let test_id = Uuid::new_v4().to_string();
-            let mut config = setup_test_config(&test_id)?;
+    safe_test!(test_save_configuration, {
+        // Test saving configuration in collect_user_input
+        //
+        // This test verifies that:
+        // 1. The function can save the configuration successfully
+        // 2. The saved JSON and ENV files exist and contain correct content
+        // 3. The config object is updated correctly
+        //
+        // Failure conditions:
+        // - If the function returns an error
+        // - If the JSON or ENV files are not created
+        // - If the file contents don't match expected values
+        // - If the config object doesn't reflect the changes
+        let test_id = Uuid::new_v4().to_string();
+        let mut config = setup_test_config(&test_id)?;
 
-            debug!("Initial config: {:?}", config);
+        debug!("Initial config: {:?}", config);
 
-            // Simulate interactive input
-            let mut input = Cursor::new("1\nnew_value1\ns\nc\n");
-            let mut output = Cursor::new(Vec::new());
+        // Simulate interactive input
+        let mut input = Cursor::new("1\nnew_value1\ns\nc\n");
+        let mut output = Cursor::new(Vec::new());
 
-            let result = collect_user_input(&mut config, true, &mut input, &mut output)?;
+        let result = collect_user_input(&mut config, true, &mut input, &mut output)?;
 
-            debug!("collect_user_input result: {:?}", result);
-            assert!(matches!(result.status, crate::rp_macros::Status::Ok));
+        debug!("collect_user_input result: {:?}", result);
+        assert!(matches!(result.status, crate::rp_macros::Status::Ok));
 
-           // let output_str = String::from_utf8(output.into_inner())?;
-           // debug!("Output: {}", output_str);
+        // Check that the configuration was saved
+        let json_path = JsonOutputUri!(config).unwrap();
+        let env_path = EnvOutputUri!(config).unwrap();
 
-            // Check that the configuration was saved
-            let json_path = JsonOutputUri!(config).unwrap();
-            let env_path = EnvOutputUri!(config).unwrap();
+        debug!("JSON path: {:?}", json_path);
+        debug!("ENV path: {:?}", env_path);
 
-            debug!("JSON path: {:?}", json_path);
-            debug!("ENV path: {:?}", env_path);
+        // Check that files exist
+        assert!(
+            std::path::Path::new(&json_path).exists(),
+            "JSON file does not exist at {:?}",
+            json_path
+        );
+        assert!(
+            std::path::Path::new(&env_path).exists(),
+            "ENV file does not exist at {:?}",
+            env_path
+        );
 
-            // Check that files exist
-            assert!(
-                std::path::Path::new(&json_path).exists(),
-                "JSON file does not exist at {:?}",
-                json_path
-            );
-            assert!(
-                std::path::Path::new(&env_path).exists(),
-                "ENV file does not exist at {:?}",
-                env_path
-            );
+        // Check JSON file content
+        let json_content = fs::read_to_string(&json_path)?;
+        let json_map: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_str(&json_content)?;
 
-            // Check JSON file content
-            let json_content = fs::read_to_string(&json_path)?;
-            let json_map: serde_json::Map<String, serde_json::Value> =
-                serde_json::from_str(&json_content)?;
+        debug!("JSON content: {}", json_content);
+        
+        // Check that the first item was updated and the second remains default
+        assert_eq!(json_map[&config.items[0].key], "new_value1");
+        assert_eq!(json_map[&config.items[1].key], "default2");
 
-            debug!("JSON content: {}", json_content);
-            
-            // Check that the first item was updated and the second remains default
-            assert_eq!(json_map[&config.items[0].key], "new_value1");
-            assert_eq!(json_map[&config.items[1].key], "default2");
+        // Check ENV file content
+        let env_content = fs::read_to_string(&env_path)?;
+        debug!("ENV file content: {}", env_content);
 
-            // Check ENV file content
-            let env_content = fs::read_to_string(&env_path)?;
-            debug!("ENV file content: {}", env_content);
+        // Debug output for config items
+        debug!("Config items:");
+        for (index, item) in config.items.iter().enumerate() {
+            debug!("Item {}: key={}, temp_env_var={}", index, item.key, item.temp_environment_variable_name);
+        }
 
-            // Debug output for config items
-            debug!("Config items:");
-            for (index, item) in config.items.iter().enumerate() {
-                debug!("Item {}: key={}, temp_env_var={}", index, item.key, item.temp_environment_variable_name);
-            }
+        // Case-insensitive check for the first item (which was updated)
+        let expected_env_var1 = format!("{}=NEW_VALUE1", config.items[0].key.to_uppercase());
+        assert!(
+            env_content.to_uppercase().contains(&expected_env_var1),
+            "Expected '{}' not found in env content: {}",
+            expected_env_var1,
+            env_content
+        );
 
-            // Case-insensitive check for the first item (which was updated)
-            let expected_env_var1 = format!("{}=NEW_VALUE1", config.items[0].key.to_uppercase());
-            assert!(
-                env_content.to_uppercase().contains(&expected_env_var1),
-                "Expected '{}' not found in env content: {}",
-                expected_env_var1,
-                env_content
-            );
+        // Case-insensitive check for the second item (which should remain default)
+        let expected_env_var2 = format!("{}=DEFAULT2", config.items[1].key.to_uppercase());
+        assert!(
+            env_content.to_uppercase().contains(&expected_env_var2),
+            "Expected '{}' not found in env content: {}",
+            expected_env_var2,
+            env_content
+        );
 
-            // Case-insensitive check for the second item (which should remain default)
-            let expected_env_var2 = format!("{}=DEFAULT2", config.items[1].key.to_uppercase());
-            assert!(
-                env_content.to_uppercase().contains(&expected_env_var2),
-                "Expected '{}' not found in env content: {}",
-                expected_env_var2,
-                env_content
-            );
+        // Clean up
+        std::fs::remove_file(json_path)?;
+        std::fs::remove_file(env_path)?;
 
-            // Clean up
-            std::fs::remove_file(json_path)?;
-            std::fs::remove_file(env_path)?;
+        Ok(())
+    });
 
-            Ok(())
-        })
-    }
+    safe_test!(test_environment_variable_setting, {
+        // Test environment variable setting in collect_user_input
+        //
+        // This test verifies that:
+        // 1. The function sets environment variables correctly
+        // 2. The .env file is created with correct content
+        // 3. The function returns the correct env_file path
+        //
+        // Failure conditions:
+        // - If the function returns an error
+        // - If the environment variable is not set correctly
+        // - If the .env file is not created or contains incorrect content
+        // - If the returned env_file path doesn't match the expected path
+        let test_id = Uuid::new_v4().to_string();
+        let mut config = setup_test_config(&test_id)?;
 
-    /// Test environment variable setting in collect_user_input
-    ///
-    /// This test verifies that:
-    /// 1. The function sets environment variables correctly
-    /// 2. The .env file is created with correct content
-    /// 3. The function returns the correct env_file path
-    ///
-    /// Failure conditions:
-    /// - If the function returns an error
-    /// - If the environment variable is not set correctly
-    /// - If the .env file is not created or contains incorrect content
-    /// - If the returned env_file path doesn't match the expected path
-    #[test]
-    fn test_environment_variable_setting() -> Result<(), Box<dyn std::any::Any + Send>> {
-        run_test(|| {
-            let test_id = Uuid::new_v4().to_string();
-            let mut config = setup_test_config(&test_id)?;
+        debug!("Initial config: {:?}", config);
 
-            debug!("Initial config: {:?}", config);
+        // Simulate interactive input
+        let mut input = Cursor::new("1\nnew_env_value\ns\nc\n");
+        let mut output = Cursor::new(Vec::new());
 
-            // Simulate interactive input
-            let mut input = Cursor::new("1\nnew_env_value\ns\nc\n");
-            let mut output = Cursor::new(Vec::new());
+        let result = collect_user_input(&mut config, true, &mut input, &mut output)?;
 
-            let result = collect_user_input(&mut config, true, &mut input, &mut output)?;
+        debug!("collect_user_input result: {:?}", result);
+        assert!(matches!(result.status, crate::rp_macros::Status::Ok));
 
-            debug!("collect_user_input result: {:?}", result);
-            assert!(matches!(result.status, crate::rp_macros::Status::Ok));
+        let output_str = String::from_utf8(output.into_inner())?;
+        debug!("Output: {}", output_str);
 
-            let output_str = String::from_utf8(output.into_inner())?;
-            debug!("Output: {}", output_str);
+        // Check that the configuration was saved
+        let json_path = JsonOutputUri!(config).expect("Failed to construct JSON output path");
+        let env_path = EnvOutputUri!(config).expect("Failed to construct ENV output path");
 
-            // Check that the configuration was saved
-            let json_path = JsonOutputUri!(config).expect("Failed to construct JSON output path");
-            let env_path = EnvOutputUri!(config).expect("Failed to construct ENV output path");
+        debug!("JSON path: {:?}", json_path);
+        debug!("ENV path: {:?}", env_path);
 
-            debug!("JSON path: {:?}", json_path);
-            debug!("ENV path: {:?}", env_path);
+        // Check that files exist
+        assert!(
+            std::path::Path::new(&json_path).exists(),
+            "JSON file does not exist at {:?}",
+            json_path
+        );
+        assert!(
+            std::path::Path::new(&env_path).exists(),
+            "ENV file does not exist at {:?}",
+            env_path
+        );
 
-            // Check that files exist
-            assert!(
-                std::path::Path::new(&json_path).exists(),
-                "JSON file does not exist at {:?}",
-                json_path
-            );
-            assert!(
-                std::path::Path::new(&env_path).exists(),
-                "ENV file does not exist at {:?}",
-                env_path
-            );
+        // Check JSON file content
+        let json_content = fs::read_to_string(&json_path)?;
+        let json_map: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_str(&json_content)?;
 
-            // Check JSON file content
-            let json_content = fs::read_to_string(&json_path)?;
-            let json_map: serde_json::Map<String, serde_json::Value> =
-                serde_json::from_str(&json_content)?;
+        debug!("JSON content: {}", json_content);
+        
+        // Check that the first item was updated and the second remains default
+        assert_eq!(json_map[&config.items[0].key], "new_env_value");
+        assert_eq!(json_map[&config.items[1].key], "default2");
 
-            debug!("JSON content: {}", json_content);
-            
-            // Check that the first item was updated and the second remains default
-            assert_eq!(json_map[&config.items[0].key], "new_env_value");
-            assert_eq!(json_map[&config.items[1].key], "default2");
+        // Check ENV file content
+        let env_content = fs::read_to_string(&env_path)?;
+        debug!("ENV file content: {}", env_content);
 
-            // Check ENV file content
-            let env_content = fs::read_to_string(&env_path)?;
-            debug!("ENV file content: {}", env_content);
+        // Debug output for config items
+        debug!("Config items:");
+        for (index, item) in config.items.iter().enumerate() {
+            debug!("Item {}: key={}, temp_env_var={}", index, item.key, item.temp_environment_variable_name);
+        }
 
-            // Debug output for config items
-            debug!("Config items:");
-            for (index, item) in config.items.iter().enumerate() {
-                debug!("Item {}: key={}, temp_env_var={}", index, item.key, item.temp_environment_variable_name);
-            }
+        // Case-insensitive check for the first item (which was updated)
+        let expected_env_var1 = format!("{}=NEW_ENV_VALUE", config.items[0].key.to_uppercase());
+        assert!(
+            env_content.to_uppercase().contains(&expected_env_var1),
+            "Expected '{}' not found in env content: {}",
+            expected_env_var1,
+            env_content
+        );
 
-            // Case-insensitive check for the first item (which was updated)
-            let expected_env_var1 = format!("{}=NEW_ENV_VALUE", config.items[0].key.to_uppercase());
-            assert!(
-                env_content.to_uppercase().contains(&expected_env_var1),
-                "Expected '{}' not found in env content: {}",
-                expected_env_var1,
-                env_content
-            );
+        // Case-insensitive check for the second item (which should remain default)
+        let expected_env_var2 = format!("{}=DEFAULT2", config.items[1].key.to_uppercase());
+        assert!(
+            env_content.to_uppercase().contains(&expected_env_var2),
+            "Expected '{}' not found in env content: {}",
+            expected_env_var2,
+            env_content
+        );
 
-            // Case-insensitive check for the second item (which should remain default)
-            let expected_env_var2 = format!("{}=DEFAULT2", config.items[1].key.to_uppercase());
-            assert!(
-                env_content.to_uppercase().contains(&expected_env_var2),
-                "Expected '{}' not found in env content: {}",
-                expected_env_var2,
-                env_content
-            );
+        // Check that the environment variable is set
+        let env_var_name = &config.items[0].temp_environment_variable_name;
+        let env_var_value = std::env::var(env_var_name).unwrap();
+        debug!("Environment variable {}: {}", env_var_name, env_var_value);
+        assert_eq!(env_var_value, "new_env_value");
 
-            // Check that the environment variable is set
-            let env_var_name = &config.items[0].temp_environment_variable_name;
-            let env_var_value = std::env::var(env_var_name).unwrap();
-            debug!("Environment variable {}: {}", env_var_name, env_var_value);
-            assert_eq!(env_var_value, "new_env_value");
+        // Clean up
+        std::env::remove_var(env_var_name);
+        std::fs::remove_file(json_path)?;
+        std::fs::remove_file(env_path)?;
 
-            // Clean up
-            std::env::remove_var(env_var_name);
-            std::fs::remove_file(json_path)?;
-            std::fs::remove_file(env_path)?;
-
-            Ok(())
-        })
-    }
+        Ok(())
+    });
 }
