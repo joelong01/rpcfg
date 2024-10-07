@@ -97,25 +97,25 @@ The exact paths of these files are returned in the command result.
 
 ## Examples
 
-1. Collect configuration in interactive mode:
+Collect configuration in interactive mode:
 
 ```bash
 rp -f repo_config.json -i collect
 ```
 
-2. Show configuration:
+ Show configuration:
 
 ```bash
 rp -f repo_config.json show
 ```
 
-3. Fetch configuration:
+Fetch configuration:
 
 ```bash
 rp -f repo_config.json fetch
 ```
 
-4. Delete generated files:
+Delete generated files:
 
 ```bash
 rp -f repo_config.json delete
