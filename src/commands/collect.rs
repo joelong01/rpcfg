@@ -32,13 +32,13 @@ use crate::{EnvOutputUri, JsonOutputUri, Success};
 /// # Examples
 ///
 /// ```
-/// use rp::{Config, ConfigItem, CommandResult};
+/// use rpcfg::{Config, ConfigItem, CommandResult};
 /// use anyhow::Result;
 ///
 /// // Mock version of execute for testing
 /// fn execute(config: &mut Config, interactive: bool) -> anyhow::Result<CommandResult> {
 ///     Ok(CommandResult {
-///         status: rp::Status::Ok,
+///         status: rpcfg::Status::Ok,
 ///         message: "Configuration collected successfully.".to_string(),
 ///         env_file: Some("path/to/env/file".to_string()),
 ///         json_file: Some("path/to/json/file".to_string()),
@@ -65,7 +65,7 @@ use crate::{EnvOutputUri, JsonOutputUri, Success};
 ///         ],
 ///     };
 ///     let result = execute(&mut config, true)?;
-///     assert!(matches!(result.status, rp::Status::Ok));
+///     assert!(matches!(result.status, rpcfg::Status::Ok));
 ///     Ok(())
 /// }
 /// ```
@@ -104,7 +104,7 @@ pub fn execute(config: &mut crate::Config, interactive: bool) -> anyhow::Result<
 ///
 /// ```
 /// use std::io::Cursor;
-/// use rp::{Config, ConfigItem, commands::collect::collect_user_input};
+/// use rpcfg::{Config, ConfigItem, commands::collect::collect_user_input};
 /// use anyhow::Result;
 ///
 /// fn main() -> Result<()> {
@@ -273,7 +273,7 @@ fn set_environment_variables(config: &Config) {
 /// # Examples
 ///
 /// ```
-/// use rp::{Config, ConfigItem};
+/// use rpcfg::{Config, ConfigItem};
 /// use std::io::Cursor;
 /// use anyhow::Result;
 ///
@@ -365,7 +365,7 @@ pub fn show_current_config<W: Write>(
 /// # Examples
 ///
 /// ```
-/// use rp::{Config, ConfigItem};
+/// use rpcfg::{Config, ConfigItem};
 /// use std::io::{Cursor, BufRead, Write};
 /// use anyhow::Result;
 ///
@@ -450,7 +450,7 @@ pub fn update_item<R: BufRead, W: Write>(
 /// # Examples
 ///
 /// ```
-/// use rp::{Config, ConfigItem, commands::collect::save_configuration};
+/// use rpcfg::{Config, ConfigItem, commands::collect::save_configuration};
 /// use anyhow::Result;
 ///
 /// fn main() -> Result<()> {

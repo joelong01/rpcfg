@@ -40,7 +40,7 @@ impl SubscriberGuard {
     /// # Example
     ///
     /// ```
-    /// use rp::common::SubscriberGuard;
+    /// use rpcfg::common::SubscriberGuard;
     ///
     /// let _guard = SubscriberGuard::new();
     /// // The subscriber is now initialized
@@ -71,7 +71,7 @@ impl SubscriberGuard {
 /// # Example
 ///
 /// ```
-/// use rp::common::run_test;
+/// use rpcfg::common::run_test;
 /// use anyhow::Result;
 ///
 /// fn my_test() -> Result<()> {
@@ -106,7 +106,7 @@ where
 /// # Example
 ///
 /// ```
-/// use rp::safe_test;
+/// use rpcfg::safe_test;
 /// use anyhow::Result;
 ///
 /// safe_test!(my_test, {

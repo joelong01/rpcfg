@@ -4,16 +4,16 @@
 
 use clap::{Parser, Subcommand};
 use anyhow::{Result, Context};
-use rp::commands::collect::execute;
+use rpcfg::commands::collect::execute;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, stderr, Write};
 use serde::{Serialize, Deserialize};
 use tracing::{Level, info, debug, trace};
 use tracing_subscriber::FmtSubscriber;
-use rp::{Config, ConfigItem};
+use rpcfg::{Config, ConfigItem};
 use tabwriter::TabWriter;
-use rp::test_utils::create_test_config;
+use rpcfg::test_utils::create_test_config;
 
 /// CLI tool for managing repository configurations
 #[derive(Parser)]
@@ -68,7 +68,7 @@ enum Commands {
 /// # Example
 ///
 /// ```
-/// use rp::models::{Config, ConfigItem};
+/// use rpcfg::models::{Config, ConfigItem};
 /// use std::fs::File;
 /// use std::io::Write;
 /// use tempfile::NamedTempFile;
@@ -85,7 +85,7 @@ enum Commands {
 /// }}"#).unwrap();
 ///
 /// // Parse the config file
-/// let config = rp::parse_config_file(temp_file.path().to_str().unwrap());
+/// let config = rpcfg::parse_config_file(temp_file.path().to_str().unwrap());
 /// assert!(config.is_ok());
 /// ```
 fn parse_config_file(file_path: &str) -> Result<Config> {
@@ -117,7 +117,7 @@ fn parse_config_file(file_path: &str) -> Result<Config> {
 /// # Example
 ///
 /// ```
-/// use rp::Cli;
+/// use rpcfg::Cli;
 /// use clap::Parser;
 /// use std::ffi::OsString;
 ///
@@ -186,8 +186,8 @@ fn main() -> Result<()> {
 mod tests {
     use super::*;
     use crate::{Config, ConfigItem};
-    use rp::commands::collect::collect_user_input;
-    use rp::safe_test;
+    use rpcfg::commands::collect::collect_user_input;
+    use rpcfg::safe_test;
     use std::fs;
     use std::io::Cursor;
     use uuid::Uuid;
@@ -224,7 +224,7 @@ mod tests {
         Ok(config)
     }
 
-    rp::safe_test!(test_non_interactive_mode, {
+    rpcfg::safe_test!(test_non_interactive_mode, {
         // Test non-interactive mode of collect_user_input
         //
         // This test verifies that in non-interactive mode:
@@ -242,7 +242,7 @@ mod tests {
 
         let result = collect_user_input(&mut config, false, &mut input, &mut output)?;
 
-        assert!(matches!(result.status, rp::Status::Ok));
+        assert!(matches!(result.status, rpcfg::Status::Ok));
 
         for item in &config.items {
             debug!(
@@ -273,7 +273,7 @@ mod tests {
 
         let result = collect_user_input(&mut config, true, &mut input, &mut output)?;
 
-        assert!(matches!(result.status, rp::Status::Ok));
+        assert!(matches!(result.status, rpcfg::Status::Ok));
 
         let output_str = String::from_utf8(output.into_inner())?;
         debug!("Output: {}", output_str);
@@ -302,7 +302,7 @@ mod tests {
 
         let result = collect_user_input(&mut config, true, &mut input, &mut output)?;
 
-        assert!(matches!(result.status, rp::Status::Ok));
+        assert!(matches!(result.status, rpcfg::Status::Ok));
 
         let output_str = String::from_utf8(output.into_inner())?;
         debug!("Output: {}", output_str);
