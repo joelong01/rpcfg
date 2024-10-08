@@ -1,5 +1,5 @@
 use std::sync::atomic::{AtomicUsize, AtomicBool};
-use serde::{Serialize, Deserialize};
+
 
 
 /// Global flag for verbose output
@@ -8,19 +8,7 @@ pub static VERBOSE: AtomicBool = AtomicBool::new(false);
 /// Global counter for trace calls
 pub static TRACE_COUNT: AtomicUsize = AtomicUsize::new(0);
 
-#[derive(Serialize, Deserialize, Debug)]
-pub enum Status {
-    Ok,
-    Error,
-}
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct CommandResult {
-    pub status: Status,
-    pub message: String,
-    pub env_file: Option<String>,
-    pub json_file: Option<String>,
-}
 
 // Helper macros
 #[macro_export]
@@ -50,8 +38,8 @@ macro_rules! get_base_name {
 #[macro_export]
 macro_rules! Success {
     ($($arg:tt)*) => {{
-        $crate::rp_macros::CommandResult {
-            status: $crate::rp_macros::Status::Ok,
+        $crate::models::CommandResult {
+            status: $crate::models::Status::Ok,
             message: format!($($arg)*),
             env_file: None,
             json_file: None,
@@ -63,8 +51,8 @@ macro_rules! Success {
 #[macro_export]
 macro_rules! Fail {
     ($($arg:tt)*) => {{
-        $crate::rp_macros::CommandResult {
-            status: $crate::rp_macros::Status::Error,
+        $crate::models::CommandResult {
+            status: $crate::models::Status::Error,
             message: format!($($arg)*),
             env_file: None,
             json_file: None,
@@ -114,3 +102,9 @@ macro_rules! get_root_dir {
         }
     }};
 }
+   #[macro_export]
+   macro_rules! create_test_config {
+       ($test_id:expr) => {
+           crate::test_utils::create_test_config($test_id)
+       };
+   }

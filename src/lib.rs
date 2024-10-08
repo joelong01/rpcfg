@@ -1,13 +1,12 @@
-#![allow(unused_imports)]
 // src/lib.rs
-pub mod models;
 pub mod commands;
-pub mod rp_macros;
-#[macro_use]
 pub mod common;
+pub mod models;
+pub mod rp_macros;
+pub mod test_utils;
 
-// Re-export important structs and macros
-pub use models::{Config, ConfigItem};
-pub use rp_macros::*;  // This will re-export all macros and other items from rp_macros
+// Re-export important structs and macros - this will remove the heirarchy and put them at the crate level
 pub use common::*;
-
+pub use models::*;
+pub use rp_macros::*;
+pub use test_utils::*;

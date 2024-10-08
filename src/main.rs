@@ -4,28 +4,16 @@
 
 use clap::{Parser, Subcommand};
 use anyhow::{Result, Context};
+use rp::commands::collect::execute;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, stderr, Write};
 use serde::{Serialize, Deserialize};
 use tracing::{Level, info, debug, trace};
 use tracing_subscriber::FmtSubscriber;
-use rp::models::{Config, ConfigItem};
+use rp::{Config, ConfigItem};
 use tabwriter::TabWriter;
-
-#[macro_use]
-pub mod rp_macros;
-pub use rp_macros::*;
-
-#[macro_use]
-pub mod common;
-pub use common::*;
-
-#[derive(Serialize, Deserialize, Debug)]
-pub enum Status {
-    Ok,
-    Error,
-}
+use rp::test_utils::create_test_config;
 
 /// CLI tool for managing repository configurations
 #[derive(Parser)]
@@ -110,8 +98,6 @@ fn parse_config_file(file_path: &str) -> Result<Config> {
     Ok(config)
 }
 
-mod commands;
-
 /// The main entry point for the CLI application.
 ///
 /// This function parses command-line arguments, sets up logging, loads the configuration,
@@ -173,7 +159,7 @@ fn main() -> Result<()> {
     match cli.command {
         Commands::Collect => {
             info!("Executing Collect command");
-            commands::collect::execute(&mut config, cli.interactive)?;
+            execute(&mut config, cli.interactive)?;
             info!("User input collected");
         }
         Commands::Delete => {
@@ -200,7 +186,8 @@ fn main() -> Result<()> {
 mod tests {
     use super::*;
     use crate::{Config, ConfigItem};
-    use commands::collect::collect_user_input;
+    use rp::commands::collect::collect_user_input;
+    use rp::safe_test;
     use std::fs;
     use std::io::Cursor;
     use uuid::Uuid;
@@ -237,7 +224,7 @@ mod tests {
         Ok(config)
     }
 
-    safe_test!(test_non_interactive_mode, {
+    rp::safe_test!(test_non_interactive_mode, {
         // Test non-interactive mode of collect_user_input
         //
         // This test verifies that in non-interactive mode:
@@ -255,7 +242,7 @@ mod tests {
 
         let result = collect_user_input(&mut config, false, &mut input, &mut output)?;
 
-        assert!(matches!(result.status, crate::rp_macros::Status::Ok));
+        assert!(matches!(result.status, rp::Status::Ok));
 
         for item in &config.items {
             debug!(
@@ -286,7 +273,7 @@ mod tests {
 
         let result = collect_user_input(&mut config, true, &mut input, &mut output)?;
 
-        assert!(matches!(result.status, crate::rp_macros::Status::Ok));
+        assert!(matches!(result.status, rp::Status::Ok));
 
         let output_str = String::from_utf8(output.into_inner())?;
         debug!("Output: {}", output_str);
@@ -315,7 +302,7 @@ mod tests {
 
         let result = collect_user_input(&mut config, true, &mut input, &mut output)?;
 
-        assert!(matches!(result.status, crate::rp_macros::Status::Ok));
+        assert!(matches!(result.status, rp::Status::Ok));
 
         let output_str = String::from_utf8(output.into_inner())?;
         debug!("Output: {}", output_str);

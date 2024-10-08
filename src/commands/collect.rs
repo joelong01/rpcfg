@@ -1,9 +1,11 @@
-use crate::{CommandResult, Config, EnvOutputUri, JsonOutputUri, Success};
-use anyhow::{Context, Result};
 use std::fs::File;
 use std::io::{self, BufRead, Write};
+use anyhow::Context;
 use tabwriter::TabWriter;
 use tracing::debug;
+
+use crate::models::{CommandResult, Config};
+use crate::{EnvOutputUri, JsonOutputUri, Success};
 
 
 /// Executes the collect command, gathering configuration input from the user.
@@ -34,7 +36,7 @@ use tracing::debug;
 /// use anyhow::Result;
 ///
 /// // Mock version of execute for testing
-/// fn execute(config: &mut Config, interactive: bool) -> Result<CommandResult> {
+/// fn execute(config: &mut Config, interactive: bool) -> anyhow::Result<CommandResult> {
 ///     Ok(CommandResult {
 ///         status: rp::Status::Ok,
 ///         message: "Configuration collected successfully.".to_string(),
@@ -67,10 +69,10 @@ use tracing::debug;
 ///     Ok(())
 /// }
 /// ```
-pub fn execute(config: &mut Config, interactive: bool) -> Result<CommandResult> {
+pub fn execute(config: &mut crate::Config, interactive: bool) -> anyhow::Result<crate::CommandResult> {
     let stdin = io::stdin();
     let mut stdin = stdin.lock();
-    let mut stdout = io::stdout();
+    let mut stdout = io::stderr();
     collect_user_input(config, interactive, &mut stdin, &mut stdout)
 }
 /// Collects user input to configure items in the provided Config object.
@@ -135,7 +137,7 @@ pub fn collect_user_input<R: BufRead, W: Write>(
     interactive: bool,
     input: &mut R,
     output: &mut W,
-) -> Result<CommandResult> {
+) -> anyhow::Result<CommandResult> {
     debug!(
         "collect_user_input: config: {:?} interactive: {}",
         config, interactive
@@ -176,7 +178,7 @@ fn interactive_config_loop<R: BufRead, W: Write>(
     storage_type: &mut String,
     input: &mut R,
     output: &mut W,
-) -> Result<()> {
+) -> anyhow::Result<()> {
     loop {
         show_current_config(config, storage_type, output)?;
 
@@ -197,9 +199,9 @@ fn interactive_config_loop<R: BufRead, W: Write>(
 }
 
 /// Read and trim user input
-fn read_user_input<R: BufRead>(input: &mut R) -> Result<String> {
+fn read_user_input<R: BufRead>(input: &mut R) -> anyhow::Result<String> {
     let mut user_input = String::new();
-    input.read_line(&mut user_input)?;
+    input.read_line(&mut user_input).context("Failed to read user input")?;
     Ok(user_input.trim().to_lowercase())
 }
 
@@ -213,7 +215,7 @@ fn toggle_storage_type(storage_type: &mut String) {
 }
 
 /// Save configuration in interactive mode and provide feedback
-fn save_config_interactive<W: Write>(config: &mut Config, storage_type: &str, output: &mut W) -> Result<()> {
+fn save_config_interactive<W: Write>(config: &mut Config, storage_type: &str, output: &mut W) -> anyhow::Result<()> {
     match save_configuration(config, storage_type) {
         Ok(()) => writeln!(output, "Configuration saved successfully.")?,
         Err(e) => writeln!(output, "Failed to save configuration: {}", e)?,
@@ -227,7 +229,7 @@ fn handle_item_update<R: BufRead, W: Write>(
     user_input: &str,
     input: &mut R,
     output: &mut W,
-) -> Result<()> {
+) -> anyhow::Result<()> {
     if let Ok(index) = user_input.parse::<usize>() {
         if index > 0 && index <= config.items.len() {
             update_item(config, index - 1, input, output)?;
@@ -308,7 +310,7 @@ pub fn show_current_config<W: Write>(
     config: &Config,
     storage_type: &str,
     out: &mut W,
-) -> Result<()> {
+) -> anyhow::Result<()> {
     writeln!(out, "\nCurrent configuration:")?;
     writeln!(out, "Storage type: {}", storage_type)?;
     writeln!(out, "Project: {}", config.project_name)?;
@@ -412,7 +414,7 @@ pub fn update_item<R: BufRead, W: Write>(
     index: usize,
     input: &mut R,
     output: &mut W,
-) -> Result<()> {
+) -> anyhow::Result<()> {
     let item = config.items.get_mut(index).ok_or(anyhow::anyhow!("Item not found"))?;
     writeln!(output, "Enter new value for {} (current: {}): ", item.description, item.value)?;
     let mut new_value = String::new();
@@ -479,7 +481,7 @@ pub fn update_item<R: BufRead, W: Write>(
 /// # Note
 ///
 /// This function will overwrite existing files if they already exist at the target paths.
-pub fn save_configuration(config: &Config, storage_type: &str) -> Result<()> {
+pub fn save_configuration(config: &Config, storage_type: &str) -> anyhow::Result<()> {
     debug!("save_configuration: storage_type = {}", storage_type);
 
     let json_file_path = JsonOutputUri!(config)
@@ -535,14 +537,16 @@ pub fn save_configuration(config: &Config, storage_type: &str) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::{safe_test, Config, ConfigItem};
     use std::fs;
-    use std::io::Cursor;
+
+    use io::Cursor;
     use uuid::Uuid;
 
+    use super::*;
 
-    fn setup_test_config(test_id: &str) -> Result<Config> {
+    use crate::{safe_test, ConfigItem};
+
+    fn setup_test_config(test_id: &str) -> anyhow::Result<Config> {
         Ok(Config {
             stored: "local".to_string(),
             config_version: "1.0".to_string(),
@@ -593,7 +597,7 @@ mod tests {
 
         let result = collect_user_input(&mut config, false, &mut input, &mut output)?;
 
-        assert!(matches!(result.status, crate::rp_macros::Status::Ok));
+        assert!(matches!(result.status, crate::models::Status::Ok));
 
         for (index, item) in config.items.iter().enumerate() {
             debug!(
@@ -629,7 +633,7 @@ mod tests {
 
         let result = collect_user_input(&mut config, true, &mut input, &mut output)?;
 
-        assert!(matches!(result.status, crate::rp_macros::Status::Ok));
+        assert!(matches!(result.status, crate::models::Status::Ok));
 
         let output_str = String::from_utf8(output.into_inner())?;
         assert!(output_str.contains("Storage type: keyvault"));
@@ -656,7 +660,7 @@ mod tests {
 
         let result = collect_user_input(&mut config, true, &mut input, &mut output)?;
 
-        assert!(matches!(result.status, crate::rp_macros::Status::Ok));
+        assert!(matches!(result.status, crate::models::Status::Ok));
 
         let output_str = String::from_utf8(output.into_inner())?;
         assert!(output_str.contains("Invalid input. Please try again."));
@@ -690,7 +694,7 @@ mod tests {
         let result = collect_user_input(&mut config, true, &mut input, &mut output)?;
 
         debug!("collect_user_input result: {:?}", result);
-        assert!(matches!(result.status, crate::rp_macros::Status::Ok));
+        assert!(matches!(result.status, crate::models::Status::Ok));
 
         // Check that the configuration was saved
         let json_path = JsonOutputUri!(config).unwrap();
@@ -782,7 +786,7 @@ mod tests {
         let result = collect_user_input(&mut config, true, &mut input, &mut output)?;
 
         debug!("collect_user_input result: {:?}", result);
-        assert!(matches!(result.status, crate::rp_macros::Status::Ok));
+        assert!(matches!(result.status, crate::models::Status::Ok));
 
         let output_str = String::from_utf8(output.into_inner())?;
         debug!("Output: {}", output_str);

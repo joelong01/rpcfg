@@ -25,3 +25,17 @@ pub struct Config {
     pub is_test: bool,
     pub items: Vec<ConfigItem>,
 }
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum Status {
+    Ok,
+    Error,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct CommandResult {
+    pub status: Status,
+    pub message: String,
+    pub env_file: Option<String>,
+    pub json_file: Option<String>,
+}
