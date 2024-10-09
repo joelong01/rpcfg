@@ -1,7 +1,8 @@
-use std::panic;
+use std::{backtrace, panic};
 use std::sync::Once;
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
+use backtrace::Backtrace;
 
 static INIT: Once = Once::new();
 
@@ -82,16 +83,42 @@ impl SubscriberGuard {
 /// let result = run_test(my_test);
 /// assert!(result.is_ok());
 /// ```
-pub fn run_test<T>(test: T) -> Result<(), Box<dyn std::any::Any + Send>>
+pub fn run_test<T>(test: T) -> Result<(), String>
 where
     T: FnOnce() -> Result<(), anyhow::Error> + panic::UnwindSafe,
 {
     let guard = SubscriberGuard::new();
-    let result = panic::catch_unwind(|| {
-        test().map_err(|e| panic::panic_any(e))
+    let result: Result<Result<(), anyhow::Error>, Box<dyn std::any::Any + Send>> = panic::catch_unwind(|| {
+        test().map_err(|e| {
+            let bt = Backtrace::capture();
+            let formatted_backtrace = format!("{:?}", bt);
+            let formatted_lines: Vec<_> = formatted_backtrace
+                .lines()
+                .filter(|line| line.contains("src"))
+                .map(|line| line.trim())
+                .collect();
+            anyhow::anyhow!(
+                "Test failed: {}\n\nRelevant backtrace:\n{}",
+                e,
+                formatted_lines.join("\n")
+            )
+        })
     });
     drop(guard);
-    result.unwrap_or_else(|e| Err(e))
+
+    match result {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => Err(e.to_string()),
+        Err(e) => {
+            if let Some(s) = e.downcast_ref::<String>() {
+                Err(s.clone())
+            } else if let Some(s) = e.downcast_ref::<&str>() {
+                Err(s.to_string())
+            } else {
+                Err("Unknown panic occurred".to_string())
+            }
+        }
+    }
 }
 
 /// A macro for defining safe test functions.
@@ -120,7 +147,10 @@ macro_rules! safe_test {
         $(#[$meta])*
         #[test]
         fn $name() {
-            let _ = $crate::common::run_test(|| $body);
+            match $crate::common::run_test(|| $body) {
+                Ok(_) => (),
+                Err(e) => panic!("Test failed: {}", e),
+            }
         }
     };
 }

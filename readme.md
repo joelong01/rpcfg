@@ -1,20 +1,15 @@
-
 # Repository Configuration CLI Tool
 
-This CLI tool manages repository configurations, allowing users to collect, delete, fetch, and show configuration data.
+This CLI tool manages repository configurations, allowing users to collect, store, and retrieve configuration settings for various projects and environments.
 
-## Table of Contents
+## Features
 
-- [Repository Configuration CLI Tool](#repository-configuration-cli-tool)
-  - [Table of Contents](#table-of-contents)
-  - [Installation](#installation)
-  - [Usage](#usage)
-  - [Commands](#commands)
-  - [Options](#options)
-  - [Input](#input)
-  - [Output](#output)
-  - [Examples](#examples)
-  - [Implementation](#implementation)
+- Interactive and non-interactive configuration collection
+- Storage of configurations in both JSON and ENV formats
+- Support for local storage (future support for remote storage planned)
+- Separation of core configuration (rpcfg) and application-specific (app) settings
+- Environment variable generation for required settings
+- Flexible configuration schema supporting various data types
 
 ## Installation
 
@@ -27,7 +22,7 @@ cargo build --release
 cargo test
 ```
 
-The binary will be available in `target/release/rp`.
+The binary will be available in `target/release/rpcfg`.
 
 ## Usage
 
@@ -58,31 +53,27 @@ The primary input for this tool is a JSON configuration file. The file should ha
 
 ```json
 {
-  "stored": "local",
-  "config_version": "1.0",
-  "project_name": "example_project",
-  "config_name": "example_config",
-  "is_test": false,
-  "items": [
-    {
-      "key": "item1",
-      "description": "Description for item 1",
-      "shellscript": "",
-      "default": "default_value_1",
-      "temp_environment_variable_name": "TEMP_ENV_VAR_1",
-      "required_as_env": true,
-      "value": ""
-    },
-    {
-      "key": "item2",
-      "description": "Description for item 2",
-      "shellscript": "",
-      "default": "default_value_2",
-      "temp_environment_variable_name": "",
-      "required_as_env": false,
-      "value": ""
-    }
-  ]
+"rpcfg": [
+            {
+            "key": "stored",
+            "description": "Storage type for configuration",
+            "shellscript": "",
+            "default": "local",
+            "temp_environment_variable_name": "",
+            "required_as_env": false
+            },
+    ],
+                "app": [
+                {
+                "key": "azureLocation",
+                "description": "the location for your Azure Datacenter",
+                "shellscript": "",
+                "default": "uswest3",
+                "temp_environment_variable_name": "AZURE_LOCATION",
+                "required_as_env": true
+                },
+
+    ]
 }
 ```
 
@@ -125,21 +116,22 @@ rp -f repo_config.json delete
 
 The following table lists the main crates used in this project, along with their usage:
 
-| Crate | Modules | Usage |
-|-------|---------|-------|
-| `clap` | `main.rs` | Command-line argument parsing |
-| `anyhow` | Throughout | Error handling and propagation |
-| `serde` | `models.rs`, `main.rs` | JSON serialization and deserialization |
-| `tracing` | Throughout | Logging and debugging |
-| `tracing-subscriber` | `common.rs`, `main.rs` | Setting up the tracing subscriber |
-| `uuid` | `commands/collect.rs`, test modules | Generating unique identifiers for tests |
-| `tabwriter` | `commands/collect.rs`, `main.rs` | Formatting tabular output |
-| `tempfile` | Test modules | Creating temporary files for testing |
-| `std::fs` | Throughout | File system operations |
-| `std::io` | Throughout | Input/output operations |
-| `std::collections` | `main.rs` | Using `HashMap` for data storage |
-| `std::panic` | `common.rs` | Handling panics in tests |
-| `std::sync` | `common.rs` | Using `Once` for one-time initialization |
+| Crate                | Modules                             | Usage                                                   |
+| -------------------- | ----------------------------------- | ------------------------------------------------------- |
+| `clap`               | `main.rs`                           | Command-line argument parsing                           |
+| `anyhow`             | Throughout                          | Error handling and propagation                          |
+| `serde`              | `models.rs`, `main.rs`              | JSON serialization and deserialization                  |
+| `tracing`            | Throughout                          | Logging and debugging                                   |
+| `tracing-subscriber` | `common.rs`, `main.rs`              | Setting up the tracing subscriber                       |
+| `uuid`               | `commands/collect.rs`, test modules | Generating unique identifiers for tests                 |
+| `tabwriter`          | `commands/collect.rs`, `main.rs`    | Formatting tabular output                               |
+| `tempfile`           | Test modules                        | Creating temporary files for testing                    |
+| `std::fs`            | Throughout                          | File system operations                                  |
+| `std::io`            | Throughout                          | Input/output operations                                 |
+| `std::collections`   | `main.rs`                           | Using `HashMap` for data storage                        |
+| `std::panic`         | `common.rs`                         | Handling panics in tests                                |
+| `std::sync`          | `common.rs`                         | Using `Once` for one-time initialization                |
+| `backtrace`          | `common.rs`                         | Capturing and formatting backtraces for error reporting |
 
 The project is structured into several modules:
 

@@ -192,50 +192,9 @@ mod tests {
     use std::io::Cursor;
     use uuid::Uuid;
 
-    fn setup_test_config(test_id: &str) -> Result<Config> {
-        let config = Config {
-            stored: String::from("local"),
-            config_version: String::from("1.0"),
-            project_name: String::from("test_project"),
-            config_name: format!("test_config_{}", test_id), // Salted with test_id
-            is_test: true,
-            items: vec![
-                ConfigItem {
-                    key: format!("item1_{}", test_id),
-                    description: "Test item 1".to_string(),
-                    shellscript: "".to_string(),
-                    default: "default1".to_string(),
-                    temp_environment_variable_name: format!("TEST_ITEM_1_{}", test_id),
-                    required_as_env: true,
-                    value: String::new(),
-                },
-                ConfigItem {
-                    key: format!("item2_{}", test_id),
-                    description: "Test item 2".to_string(),
-                    shellscript: "".to_string(),
-                    default: "default2".to_string(),
-                    temp_environment_variable_name: String::new(),
-                    required_as_env: false,
-                    value: String::new(),
-                },
-            ],
-        };
-
-        Ok(config)
-    }
-
     rpcfg::safe_test!(test_non_interactive_mode, {
-        // Test non-interactive mode of collect_user_input
-        //
-        // This test verifies that in non-interactive mode:
-        // 1. The function completes successfully
-        // 2. All config items are set to their default values
-        //
-        // Failure conditions:
-        // - If the function returns an error
-        // - If any config item's value is not equal to its default
         let test_id = Uuid::new_v4().to_string();
-        let mut config = setup_test_config(&test_id)?;
+        let mut config = create_test_config(&test_id);
 
         let mut input = Cursor::new("");
         let mut output = Cursor::new(Vec::new());
@@ -244,7 +203,7 @@ mod tests {
 
         assert!(matches!(result.status, rpcfg::Status::Ok));
 
-        for item in &config.items {
+        for item in config.rpcfg.iter().chain(config.app.iter()) {
             debug!(
                 "Item {}: value = {}, default = {}",
                 item.key, item.value, item.default
@@ -256,19 +215,10 @@ mod tests {
     });
 
     safe_test!(test_toggle_storage_type, {
-        // Test toggling storage type in collect_user_input
-        //
-        // This test verifies that:
-        // 1. The storage type can be toggled from local to keyvault
-        // 2. The function completes successfully after toggling
-        //
-        // Failure conditions:
-        // - If the function returns an error
-        // - If the output doesn't contain "Storage type: keyvault"
         let test_id = Uuid::new_v4().to_string();
-        let mut config = setup_test_config(&test_id)?;
+        let mut config = create_test_config(&test_id);
 
-        let mut input = Cursor::new("t\nc\n");
+        let mut input = Cursor::new("1\nkeyvault\nc\n");
         let mut output = Cursor::new(Vec::new());
 
         let result = collect_user_input(&mut config, true, &mut input, &mut output)?;
@@ -278,26 +228,16 @@ mod tests {
         let output_str = String::from_utf8(output.into_inner())?;
         debug!("Output: {}", output_str);
 
-        assert!(output_str.contains("Storage type: keyvault"));
+        assert!(output_str.contains("stored=keyvault"));
 
         Ok(())
     });
 
     safe_test!(test_invalid_input, {
-        // Test invalid input handling in collect_user_input
-        //
-        // This test verifies that:
-        // 1. The function handles invalid input correctly
-        // 2. Appropriate error messages are displayed
-        // 3. The function completes successfully despite invalid inputs
-        //
-        // Failure conditions:
-        // - If the function returns an error
-        // - If the output doesn't contain expected error messages
         let test_id = Uuid::new_v4().to_string();
-        let mut config = setup_test_config(&test_id)?;
+        let mut config = create_test_config(&test_id);
 
-        let mut input = Cursor::new("invalid\n3\nc\n");
+        let mut input = Cursor::new("invalid\n99\nc\n");
         let mut output = Cursor::new(Vec::new());
 
         let result = collect_user_input(&mut config, true, &mut input, &mut output)?;
