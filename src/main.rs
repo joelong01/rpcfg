@@ -23,20 +23,30 @@ struct Cli {
     command: Commands,
 
     /// Path to the input JSON file
-    #[arg(short = 'f', long, global = true)]
+    #[arg(short = 'i', long = "input", global = true)]
     input_file: Option<String>,
 
-    /// Use interactive mode to collect values
-    #[arg(short, long, global = true)]
-    interactive: bool,
+    /// Use silent mode (non-interactive)
+    #[arg(short = 's', long = "silent", global = true)]
+    silent: bool,
+
+    /// Path to the output JSON file
+    #[arg(short = 'o', long = "output", global = true)]
+    output_file: Option<String>,
 
     /// Set the tracing level (off, error, warn, info, debug, trace)
-    #[arg(long, global = true, default_value = "info")]
+    #[arg(long, global = true, default_value = "error")]
     trace_level: Level,
 }
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Initialize a new configuration file
+    Init {
+        /// Path to the output JSON file
+        #[arg(short = 'o', long = "output")]
+        output: String,
+    },
     /// Collect repository configurations and generate output files
     Collect,
     /// Delete generated output files
@@ -147,33 +157,42 @@ fn main() -> Result<()> {
 
     info!("Starting application");
 
-    // Parse the config file if provided
-    let mut config = if let Some(file_path) = cli.input_file.as_ref() {
-        debug!("Parsing config file: {}", file_path);
-        parse_config_file(file_path)?
-    } else {
-        return Err(anyhow::anyhow!("No config file provided. Use -f or --input-file to specify a config file."));
-    };
-
     // Execute the appropriate command
     match cli.command {
-        Commands::Collect => {
-            info!("Executing Collect command");
-            execute(&mut config, cli.interactive)?;
-            info!("User input collected");
+        Commands::Init { output } => {
+            info!("Executing Init command");
+            let result = rpcfg::commands::init::execute(&output)?;
+            println!("{}", result.message);
         }
-        Commands::Delete => {
-            info!("Executing Delete command");
-            // TODO: Implement Delete command
-        }
-        Commands::Fetch => {
-            info!("Executing Fetch command");
-            // TODO: Implement Fetch command
-        }
-        Commands::Show => {
-            info!("Executing Show command");
-            // to do - pull the input values and display them in a table
-           
+        _ => {
+            // For other commands, check if input_file is provided
+            let mut config = if let Some(file_path) = cli.input_file.as_ref() {
+                debug!("Parsing config file: {}", file_path);
+                parse_config_file(file_path)?
+            } else {
+                return Err(anyhow::anyhow!("No config file provided. Use -f or --input-file to specify a config file."));
+            };
+
+            match cli.command {
+                Commands::Collect => {
+                    info!("Executing Collect command");
+                    execute(&mut config, !cli.silent)?;
+                    info!("User input collected");
+                }
+                Commands::Delete => {
+                    info!("Executing Delete command");
+                    // TODO: Implement Delete command
+                }
+                Commands::Fetch => {
+                    info!("Executing Fetch command");
+                    // TODO: Implement Fetch command
+                }
+                Commands::Show => {
+                    info!("Executing Show command");
+                    // to do - pull the input values and display them in a table
+                }
+                _ => unreachable!(),
+            }
         }
     }
 

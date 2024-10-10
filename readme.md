@@ -29,11 +29,12 @@ The binary will be available in `target/release/rpcfg`.
 The general syntax for using the tool is:
 
 ```bash
-rp [OPTIONS] <COMMAND>
+rpcfg [OPTIONS] <COMMAND>
 ```
 
 ## Commands
 
+- `init`: Initialize a new configuration file
 - `collect`: Collect repository configurations and generate output files
 - `delete`: Delete generated output files
 - `fetch`: Return the JSON config with the values
@@ -41,11 +42,12 @@ rp [OPTIONS] <COMMAND>
 
 ## Options
 
-- `-f, --input-file <FILE>`: Path to the input JSON file (global option)
-- `-i, --interactive`: Use interactive mode to collect values (global option)
-- `--trace-level <LEVEL>`: Set the tracing level (off, error, warn, info, debug, trace) (global option, default: info)
+- `-i, --input <FILE>`: Path to the input JSON file (global option)
+- `-o, --output <FILE>`: Path to the output JSON file (global option)
+- `-s, --silent`: Use silent (non-interactive) mode (global option)
+- `--trace-level <LEVEL>`: Set the tracing level (off, error, warn, info, debug, trace) (global option, default: error)
 - `-h, --help`: Print help information
-- `-V, --version`: Print version information
+- `-v, --version`: Print version information
 
 ## Input
 
@@ -88,29 +90,39 @@ The exact paths of these files are returned in the command result.
 
 ## Examples
 
-Collect configuration in interactive mode:
+1. Initialize a new configuration file:
 
-```bash
-rp -f repo_config.json -i collect
-```
+   ```bash
+   rpcfg init -o mysettings.json
+   ```
 
- Show configuration:
+<!-- markdownlint-disable-next-line MD029 -->
+2. Collect configuration in interactive mode:
 
-```bash
-rp -f repo_config.json show
-```
+   ```bash
+   rpcfg collect -i repo_config.json -o updated_config.json
+   ```
 
-Fetch configuration:
+<!-- markdownlint-disable-next-line MD029 -->
+3. Show configuration:
 
-```bash
-rp -f repo_config.json fetch
-```
+   ```bash
+   rpcfg show -i repo_config.json
+   ```
 
-Delete generated files:
+<!-- markdownlint-disable-next-line MD029 -->
+4. Fetch configuration:
 
-```bash
-rp -f repo_config.json delete
-```
+   ```bash
+   rpcfg fetch -i repo_config.json
+   ```
+
+<!-- markdownlint-disable-next-line MD029 -->
+5. Delete generated files:
+
+   ```bash
+   rpcfg delete -i repo_config.json
+   ```
 
 ## Implementation
 

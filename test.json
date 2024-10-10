@@ -1,0 +1,45 @@
+{
+  "rpcfg": [
+    {
+      "key": "stored",
+      "description": "Storage type for configuration",
+      "shellscript": "",
+      "default": "local",
+      "temp_environment_variable_name": "",
+      "required_as_env": false
+    },
+    {
+      "key": "config_version",
+      "description": "Version of the configuration",
+      "shellscript": "",
+      "default": "1.0",
+      "temp_environment_variable_name": "",
+      "required_as_env": false
+    },
+    {
+      "key": "project_name",
+      "description": "Name of the project",
+      "shellscript": "",
+      "default": "rpcfg",
+      "temp_environment_variable_name": "",
+      "required_as_env": false
+    },
+    {
+      "key": "config_name",
+      "description": "Name of the configuration",
+      "shellscript": "",
+      "default": "rpcfg_config",
+      "temp_environment_variable_name": "",
+      "required_as_env": false
+    },
+    {
+      "key": "environment",
+      "description": "Environment for the configuration",
+      "shellscript": "",
+      "default": "development",
+      "temp_environment_variable_name": "",
+      "required_as_env": false
+    }
+  ],
+  "app": []
+}

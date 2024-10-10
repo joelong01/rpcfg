@@ -19,7 +19,7 @@ pub struct ConfigItem {
 pub struct Config {
     pub rpcfg: Vec<ConfigItem>,
     pub app: Vec<ConfigItem>,
-    #[serde(default)]
+    #[serde(skip)]
     pub is_test: bool,
 }
 
