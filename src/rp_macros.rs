@@ -43,11 +43,18 @@ pub fn base_output_dir(config: &crate::Config) -> Option<PathBuf> {
     let config_name = config.get_settings("config_name").first().map(|item| item.value.as_str()).unwrap_or("default_config");
     let environment = config.get_settings("environment").first().map(|item| item.value.as_str()).unwrap_or("default_env");
 
+
+    tracing::debug!("Storage type: {}", stored);
+    tracing::debug!("Project name: {}", project_name);
+    tracing::debug!("Config name: {}", config_name);
+    tracing::debug!("Environment: {}", environment);    
+
     if stored == "local" {
         Some(crate::get_rp_dir!(config)
             .join(project_name)
             .join(format!("{}-{}", config_name, environment)))
     } else {
+        tracing::error!("Storage type {} is not supported", stored);
         None
     }
 }

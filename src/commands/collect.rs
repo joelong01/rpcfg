@@ -3,11 +3,12 @@ use std::collections::HashMap;
 use std::fmt::Write as FmtWrite; // Add this import at the top of the file
 use std::fs;
 use std::io::{self, BufRead, Write};
+use std::path::Path;
 use tabwriter::TabWriter;
 use tracing::debug;
 
 use crate::models::{CommandResult, Config};
-use crate::{EnvOutputUri, JsonOutputUri, Success};
+use crate::{ConfigItem, EnvOutputUri, JsonOutputUri, Success};
 
 /// Executes the collect command, gathering configuration input from the user.
 ///
@@ -18,7 +19,7 @@ use crate::{EnvOutputUri, JsonOutputUri, Success};
 /// # Arguments
 ///
 /// * `config` - A mutable reference to the Config object to be updated.
-/// * `interactive` - A boolean flag indicating whether to run in interactive mode.
+/// * `input_file` - The path to the input file.
 ///
 /// # Returns
 ///
@@ -36,7 +37,7 @@ use crate::{EnvOutputUri, JsonOutputUri, Success};
 /// use rpcfg::{Config, CommandResult};
 /// use anyhow::Result;
 ///
-/// fn execute(config: &mut Config, interactive: bool) -> anyhow::Result<CommandResult> {
+/// fn execute(config: &mut Config, input_file: &str) -> anyhow::Result<CommandResult> {
 ///     // Implementation details...
 ///     Ok(CommandResult {
 ///         status: rpcfg::Status::Ok,
@@ -48,31 +49,53 @@ use crate::{EnvOutputUri, JsonOutputUri, Success};
 ///
 /// fn main() -> Result<()> {
 ///     let mut config = Config::default();
-///     let result = execute(&mut config, true)?;
+///     let result = execute(&mut config, "path/to/input/file")?;
 ///     assert!(matches!(result.status, rpcfg::Status::Ok));
 ///     Ok(())
 /// }
 /// ```
-pub fn execute(
-    config: &mut crate::Config,
-    interactive: bool,
-) -> anyhow::Result<crate::CommandResult> {
+pub fn execute(config: &mut crate::Config, input_file: &str) -> anyhow::Result<crate::CommandResult> {
+    let input_path = Path::new(input_file);
+
+    // Get the output file path using the JsonOutputUri! macro
+    let output_path = JsonOutputUri!(config)
+        .ok_or_else(|| anyhow::anyhow!("Failed to get JSON output path"))?;
+    let output_path = Path::new(&output_path);
+
+    // Check if the output file exists
+    if output_path.exists() {
+        // Get the modification times
+        let input_modified = input_path.metadata()?.modified()?;
+        let output_modified = output_path.metadata()?.modified()?;
+
+        // If the output is newer than or equal to the input, return silently
+        if output_modified >= input_modified {
+            debug!("Output file is up to date. Skipping collection.");
+            return Ok(crate::CommandResult {
+                status: crate::Status::Ok,
+                message: "Configuration is up to date.".to_string(),
+                env_file: EnvOutputUri!(config),
+                json_file: Some(output_path.to_string_lossy().into_owned()),
+            });
+        }
+    }
+
+    // Proceed with the existing logic
     let stdin = io::stdin();
     let mut stdin = stdin.lock();
     let mut stdout = io::stderr();
-    collect_user_input(config, interactive, &mut stdin, &mut stdout)
+    collect_user_input(config, &mut stdin, &mut stdout)
 }
 /// Collects user input to configure items in the provided Config object.
 ///
 /// This function handles both interactive and non-interactive modes for collecting
 /// configuration data. In interactive mode, it prompts the user for input and allows
-/// updating individual items, toggling storage type, and saving the configuration.
+/// updating individual items, adding new settings, toggling storage type, and saving the configuration.
 /// In non-interactive mode, it uses default values for all items and saves the configuration.
 ///
 /// # Arguments
 ///
 /// * `config` - A mutable reference to the Config object to be updated.
-/// * `interactive` - A boolean flag indicating whether to run in interactive mode.
 /// * `input` - A mutable reference to a BufRead trait object for reading user input.
 /// * `output` - A mutable reference to a Write trait object for writing prompts and messages.
 ///
@@ -105,30 +128,27 @@ pub fn execute(
 ///         required_as_env: true,
 ///         value: "".to_string(),
 ///     });
-///     let mut input = Cursor::new("1\nnew_value\ns\nq\n");
+///     let mut input = Cursor::new("6\nnew_value\ns\nq\n");
 ///     let mut output = Vec::new();
-///     let result = collect_user_input(&mut config, true, &mut input, &mut output)?;
+///     let result = collect_user_input(&mut config, &mut input, &mut output)?;
 ///     assert!(matches!(result.status, rpcfg::Status::Ok));
 ///     Ok(())
 /// }
 /// ```
 pub fn collect_user_input<R: BufRead, W: Write>(
     config: &mut Config,
-    interactive: bool,
     input: &mut R,
     output: &mut W,
 ) -> anyhow::Result<CommandResult> {
     debug!(
-        "collect_user_input: config: {:?} interactive: {}",
-        config, interactive
+        "collect_user_input: config: {:?}",
+        config
     );
 
     // Initialize empty values with defaults
     initialize_config_values(config);
 
-    if interactive {
-        interactive_config_loop(config, input, output)?;
-    }
+    interactive_config_loop(config, input, output)?;
 
     // Save configuration (for both interactive and non-interactive modes)
     save_configuration(config)?;
@@ -161,7 +181,7 @@ fn initialize_config_values(config: &mut Config) {
 /// Handles the interactive configuration loop
 ///
 /// This function manages the interactive session where the user can view,
-/// update, and save configuration items. It continues to prompt the user
+/// update, add new settings, and save configuration items. It continues to prompt the user
 /// for actions until they choose to quit.
 ///
 /// # Arguments
@@ -184,18 +204,19 @@ fn interactive_config_loop<R: BufRead, W: Write>(
 
         write!(
             output,
-            "\nEnter item number to update, 'S' to save, or 'Q' to quit: "
+            "\nEnter item number to update, 'S' to save, 'N' to add a new setting, or 'Q' to quit: "
         )?;
         output.flush()?;
 
         let user_input = read_user_input(input)?;
 
         match user_input.as_str() {
-            "s" => {
+            "s" | "S" => {
                 save_configuration(config)?;
                 writeln!(output, "Configuration saved.")?;
             }
-            "q" => break,
+            "q" | "Q" => break,
+            "n" | "N" => add_new_setting(config, input, output)?,
             _ => handle_item_update(config, &user_input, input, output)?,
         }
     }
@@ -208,7 +229,7 @@ fn read_user_input<R: BufRead>(input: &mut R) -> anyhow::Result<String> {
     input
         .read_line(&mut user_input)
         .context("Failed to read user input")?;
-    Ok(user_input.trim().to_lowercase())
+    Ok(user_input.trim().to_string())  // Remove .to_lowercase()
 }
 
 /// Handle updating a specific item in the configuration
@@ -286,9 +307,8 @@ pub fn show_current_config<W: Write>(config: &Config, output: &mut W) -> anyhow:
 /// # Arguments
 ///
 /// * `config` - A mutable reference to the Config object to be updated.
-/// * `index` - The index of the item to be updated in the config's items vector.
-/// * `input` - A mutable reference to a BufRead trait object for reading user input.
-/// * `output` - A mutable reference to a Write trait object for writing prompts and messages.
+/// * `index` - The index of the item to be updated (combined across rpcfg and app items).
+/// * `new_value` - The new value to set for the item.
 ///
 /// # Returns
 ///
@@ -297,54 +317,31 @@ pub fn show_current_config<W: Write>(config: &Config, output: &mut W) -> anyhow:
 /// # Errors
 ///
 /// This function will return an error if:
-/// * The specified index is out of bounds for the config's items vector.
-/// * There's an I/O error when reading input or writing output.
+/// * The specified index is out of bounds for the combined rpcfg and app items.
 ///
 /// # Examples
 ///
 /// ```
 /// use rpcfg::{Config, ConfigItem};
-/// use std::io::{Cursor, BufRead, Write};
 /// use anyhow::Result;
-///
-/// fn update_item<R: BufRead, W: Write>(
-///     config: &mut Config,
-///     index: usize,
-///     input: &mut R,
-///     output: &mut W,
-/// ) -> Result<()> {
-///     let item = config.items.get_mut(index).ok_or(anyhow::anyhow!("Item not found"))?;
-///     writeln!(output, "Enter new value for {} (current: {}): ", item.description, item.value)?;
-///     let mut new_value = String::new();
-///     input.read_line(&mut new_value)?;
-///     item.value = new_value.trim().to_string();
-///     Ok(())
-/// }
+/// use std::io::Cursor;
+/// use rpcfg::commands::collect::update_item;
 ///
 /// fn main() -> Result<()> {
-///     let mut config = Config {
-///         stored: "local".to_string(),
-///         config_version: "1.0".to_string(),
-///         project_name: "test_project".to_string(),
-///         config_name: "test_config".to_string(),
-///         environment: "test".to_string(),
-///         is_test: true,
-///         items: vec![
-///             ConfigItem {
-///                 key: "item1".to_string(),
-///                 description: "Test item 1".to_string(),
+///     let mut config = Config::default();
+///     config.app.push(ConfigItem {
+///                 key: "app_item1".to_string(),
+///                 description: "App Test item 1".to_string(),
 ///                 shellscript: "".to_string(),
 ///                 default: "default1".to_string(),
-///                 temp_environment_variable_name: "TEST_ITEM_1".to_string(),
+///                 temp_environment_variable_name: "APP_TEST_ITEM_1".to_string(),
 ///                 required_as_env: true,
 ///                 value: "old_value".to_string(),
-///             },
-///         ],
-///     };
-///     let mut input = Cursor::new("new_value\n");
-///     let mut output = Vec::new();
-///     update_item(&mut config, 0, &mut input, &mut output)?;
-///     assert_eq!(config.items[0].value, "new_value");
+///             });
+///     
+///     // Update the first app item (index 5, assuming 5 rpcfg items)
+///     update_item(&mut config, 5, &mut Cursor::new("new_value\n"), &mut Vec::new())?;
+///     assert_eq!(config.app[0].value, "new_value");
 ///     Ok(())
 /// }
 /// ```
@@ -404,10 +401,6 @@ pub fn update_item<R: BufRead, W: Write>(
 ///
 /// fn main() -> Result<()> {
 ///     let mut config = Config::default();
-///     config.project_name = "test_project".to_string();
-///     config.config_name = "test_config".to_string();
-///     config.environment = "test".to_string();
-///     config.is_test = true;
 ///     config.rpcfg.push(ConfigItem {
 ///         key: "item1".to_string(),
 ///         description: "Test item 1".to_string(),
@@ -472,6 +465,87 @@ pub fn save_configuration(config: &Config) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Adds a new setting to the configuration interactively.
+///
+/// This function prompts the user to enter details for a new configuration item,
+/// including the key, description, default value, environment variable name,
+/// and whether it's required as an environment variable.
+///
+/// # Arguments
+///
+/// * `config` - A mutable reference to the Config object to be updated.
+/// * `input` - A mutable reference to a BufRead trait object for reading user input.
+/// * `output` - A mutable reference to a Write trait object for writing prompts and messages.
+///
+/// # Returns
+///
+/// Returns a Result, which is Ok if the new setting is successfully added,
+/// or an error if any I/O operations fail.
+///
+/// # Errors
+///
+/// This function will return an error if:
+/// * There's an I/O error when reading input or writing output.
+/// * Any of the read_user_input calls fail.
+///
+/// # Examples
+///
+/// ```
+/// use std::io::Cursor;
+/// use rpcfg::{Config, commands::collect::add_new_setting};
+///
+/// let mut config = Config::default();
+/// let mut input = Cursor::new("new_key\nNew description\ndefault_value\nNEW_ENV_VAR\ny\n");
+/// let mut output = Vec::new();
+///
+/// add_new_setting(&mut config, &mut input, &mut output).unwrap();
+///
+/// assert_eq!(config.app.last().unwrap().key, "new_key");
+/// assert_eq!(config.app.last().unwrap().description, "New description");
+/// ```
+pub fn add_new_setting<R: BufRead, W: Write>(
+    config: &mut Config,
+    input: &mut R,
+    output: &mut W,
+) -> anyhow::Result<()> {
+    writeln!(output, "Adding a new setting:")?;
+    
+    write!(output, "Enter key: ")?;
+    output.flush()?;
+    let key = read_user_input(input)?;
+
+    write!(output, "Enter description: ")?;
+    output.flush()?;
+    let description = read_user_input(input)?;
+
+    write!(output, "Enter default value: ")?;
+    output.flush()?;
+    let default = read_user_input(input)?;
+
+    write!(output, "Enter environment variable name (or leave empty): ")?;
+    output.flush()?;
+    let temp_environment_variable_name = read_user_input(input)?;
+
+    write!(output, "Is this required as an environment variable? (y/n): ")?;
+    output.flush()?;
+    let required_as_env = read_user_input(input)?.to_lowercase() == "y";
+
+    let new_item = ConfigItem {
+        key,
+        description,
+        shellscript: String::new(),
+        default: default.clone(),
+        temp_environment_variable_name,
+        required_as_env,
+        value: default,
+    };
+
+    config.app.push(new_item);
+    writeln!(output, "New setting added successfully.")?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -501,10 +575,10 @@ mod tests {
             .map(|item| item.value.clone())
             .collect();
 
-        let mut input = Cursor::new("");
+        let mut input = Cursor::new("9\nq\n");
         let mut output = Cursor::new(Vec::new());
 
-        let result = collect_user_input(&mut config, false, &mut input, &mut output)?;
+        let result = collect_user_input(&mut config, &mut input, &mut output)?;
 
         assert!(matches!(result.status, crate::models::Status::Ok));
 
@@ -544,10 +618,17 @@ mod tests {
         let test_id = Uuid::new_v4().to_string();
         let mut config = create_test_config(&test_id);
 
-        let mut input = Cursor::new("invalid\n3\nc\n");
+        // Provide enough input to complete the process:
+        // - "invalid" (invalid input)
+        // - "99" (invalid item number)
+        // - "6" (select first item)
+        // - "newvalue" (new value for the item)
+        // - "s" (save)
+        // - "q" (quit)
+        let mut input = Cursor::new("invalid\n99\n6\nnewvalue\ns\nq\n");
         let mut output = Cursor::new(Vec::new());
 
-        let result = collect_user_input(&mut config, true, &mut input, &mut output)?;
+        let result = collect_user_input(&mut config, &mut input, &mut output)?;
 
         assert!(matches!(result.status, crate::models::Status::Ok));
 
@@ -621,7 +702,7 @@ mod tests {
         let mut output = Cursor::new(Vec::new());
 
         // Call collect_user_input
-        let result = collect_user_input(&mut config, true, &mut input, &mut output)?;
+        let result = collect_user_input(&mut config, &mut input, &mut output)?;
         assert!(matches!(result.status, crate::models::Status::Ok));
 
         // Check JSON file content
@@ -671,6 +752,29 @@ mod tests {
         // Clean up
         std::fs::remove_file(json_path)?;
         std::fs::remove_file(env_path)?;
+
+        Ok(())
+    });
+
+    safe_test!(test_add_new_setting, {
+        let test_id = Uuid::new_v4().to_string();
+        let mut config = create_test_config(&test_id);
+
+        let mut input = Cursor::new("n\nnew_key\nNew description\ndefault_value\nNEW_ENV_VAR\ny\ns\nq\n");
+        let mut output = Cursor::new(Vec::new());
+
+        let result = collect_user_input(&mut config, &mut input, &mut output)?;
+
+        assert!(matches!(result.status, crate::models::Status::Ok));
+
+        // Check if the new setting was added
+        let new_item = config.app.iter().find(|item| item.key == "new_key");
+        assert!(new_item.is_some());
+        let new_item = new_item.unwrap();
+        assert_eq!(new_item.description, "New description");
+        assert_eq!(new_item.default, "default_value");
+        assert_eq!(new_item.temp_environment_variable_name, "NEW_ENV_VAR");
+        assert!(new_item.required_as_env);
 
         Ok(())
     });

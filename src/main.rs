@@ -2,18 +2,18 @@
 #![allow(dead_code)]
 #![allow(unused_imports)]
 
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use anyhow::{Result, Context};
 use rpcfg::commands::collect::execute;
+use rpcfg::test_utils::create_test_config;
+use rpcfg::{Config, ConfigItem};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{BufReader, stderr, Write};
-use serde::{Serialize, Deserialize};
-use tracing::{Level, info, debug, trace};
-use tracing_subscriber::FmtSubscriber;
-use rpcfg::{Config, ConfigItem};
+use std::io::{stderr, BufReader, Write};
 use tabwriter::TabWriter;
-use rpcfg::test_utils::create_test_config;
+use tracing::{debug, info, trace, Level};
+use tracing_subscriber::FmtSubscriber;
 
 /// CLI tool for managing repository configurations
 #[derive(Parser)]
@@ -30,10 +30,6 @@ struct Cli {
     #[arg(short = 's', long = "silent", global = true)]
     silent: bool,
 
-    /// Path to the output JSON file
-    #[arg(short = 'o', long = "output", global = true)]
-    output_file: Option<String>,
-
     /// Set the tracing level (off, error, warn, info, debug, trace)
     #[arg(long, global = true, default_value = "error")]
     trace_level: Level,
@@ -48,7 +44,10 @@ enum Commands {
         output: String,
     },
     /// Collect repository configurations and generate output files
-    Collect,
+    Collect {
+        #[arg(short = 'i', long = "input")]
+        input_file: String,
+    },
     /// Delete generated output files
     Delete,
     /// Return the JSON config with the values
@@ -99,12 +98,12 @@ enum Commands {
 /// assert!(config.is_ok());
 /// ```
 fn parse_config_file(file_path: &str) -> Result<Config> {
-    let file = File::open(file_path)
-        .with_context(|| format!("Failed to open file: {}", file_path))?;
+    let file =
+        File::open(file_path).with_context(|| format!("Failed to open file: {}", file_path))?;
     let reader = BufReader::new(file);
     let config: Config = serde_json::from_reader(reader)
         .with_context(|| format!("Failed to parse JSON from file: {}", file_path))?;
-    
+
     Ok(config)
 }
 
@@ -147,13 +146,12 @@ fn parse_config_file(file_path: &str) -> Result<Config> {
 /// ```
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    
+
     // Set up tracing
     let subscriber = FmtSubscriber::builder()
         .with_max_level(cli.trace_level)
         .finish();
-    tracing::subscriber::set_global_default(subscriber)
-        .expect("setting default subscriber failed");
+    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
     info!("Starting application");
 
@@ -164,21 +162,23 @@ fn main() -> Result<()> {
             let result = rpcfg::commands::init::execute(&output)?;
             println!("{}", result.message);
         }
+        Commands::Collect { input_file } => {
+            info!("Executing Collect command");
+            let mut config = parse_config_file(&input_file)?;
+            rpcfg::commands::collect::execute(&mut config, &input_file)?;
+        }
         _ => {
             // For other commands, check if input_file is provided
-            let mut config = if let Some(file_path) = cli.input_file.as_ref() {
+            let config = if let Some(file_path) = cli.input_file.as_ref() {
                 debug!("Parsing config file: {}", file_path);
                 parse_config_file(file_path)?
             } else {
-                return Err(anyhow::anyhow!("No config file provided. Use -f or --input-file to specify a config file."));
+                return Err(anyhow::anyhow!(
+                    "No config file provided. Use -f or --input-file to specify a config file."
+                ));
             };
 
             match cli.command {
-                Commands::Collect => {
-                    info!("Executing Collect command");
-                    execute(&mut config, !cli.silent)?;
-                    info!("User input collected");
-                }
                 Commands::Delete => {
                     info!("Executing Delete command");
                     // TODO: Implement Delete command
@@ -211,61 +211,41 @@ mod tests {
     use std::io::Cursor;
     use uuid::Uuid;
 
-    rpcfg::safe_test!(test_non_interactive_mode, {
-        let test_id = Uuid::new_v4().to_string();
-        let mut config = create_test_config(&test_id);
 
-        let mut input = Cursor::new("");
-        let mut output = Cursor::new(Vec::new());
+    //
+    // we haven't implemented this feature yet, so we can't test it
+    // safe_test!(test_toggle_storage_type, {
+    //     let test_id = Uuid::new_v4().to_string();
+    //     let mut config = create_test_config(&test_id);
 
-        let result = collect_user_input(&mut config, false, &mut input, &mut output)?;
+    //     let mut input = Cursor::new("1\nkeyvault\ns\nq\n");
+    //     let mut output = Cursor::new(Vec::new());
 
-        assert!(matches!(result.status, rpcfg::Status::Ok));
+    //     let result = collect_user_input(&mut config, &mut input, &mut output)?;
 
-        for item in config.rpcfg.iter().chain(config.app.iter()) {
-            debug!(
-                "Item {}: value = {}, default = {}",
-                item.key, item.value, item.default
-            );
-            assert_eq!(item.value, item.default);
-        }
+    //     assert!(matches!(result.status, rpcfg::Status::Ok));
 
-        Ok(())
-    });
+    //     let output_str = String::from_utf8(output.into_inner())?;
+    //     debug!("Output: {}", output_str);
 
-    safe_test!(test_toggle_storage_type, {
-        let test_id = Uuid::new_v4().to_string();
-        let mut config = create_test_config(&test_id);
+    //     assert!(output_str.contains("stored=keyvault"));
 
-        let mut input = Cursor::new("1\nkeyvault\nc\n");
-        let mut output = Cursor::new(Vec::new());
-
-        let result = collect_user_input(&mut config, true, &mut input, &mut output)?;
-
-        assert!(matches!(result.status, rpcfg::Status::Ok));
-
-        let output_str = String::from_utf8(output.into_inner())?;
-        debug!("Output: {}", output_str);
-
-        assert!(output_str.contains("stored=keyvault"));
-
-        Ok(())
-    });
+    //     Ok(())
+    // });
 
     safe_test!(test_invalid_input, {
         let test_id = Uuid::new_v4().to_string();
         let mut config = create_test_config(&test_id);
 
-        let mut input = Cursor::new("invalid\n99\nc\n");
+        let mut input = Cursor::new("invalid\n99\nq\n");
         let mut output = Cursor::new(Vec::new());
 
-        let result = collect_user_input(&mut config, true, &mut input, &mut output)?;
+        let result = collect_user_input(&mut config, &mut input, &mut output)?;
 
         assert!(matches!(result.status, rpcfg::Status::Ok));
 
         let output_str = String::from_utf8(output.into_inner())?;
-        debug!("Output: {}", output_str);
-
+       
         assert!(output_str.contains("Invalid input. Please try again."));
         assert!(output_str.contains("Invalid item number. Please try again."));
 

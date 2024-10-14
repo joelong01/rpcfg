@@ -11,7 +11,7 @@ pub fn create_test_config(test_id: &str) -> Config {
                 default: "local".to_string(),
                 temp_environment_variable_name: "".to_string(),
                 required_as_env: false,
-                value: "".to_string(),
+                value: "local".to_string(), // Set a default value
             },
             ConfigItem {
                 key: "config_version".to_string(),
@@ -20,9 +20,35 @@ pub fn create_test_config(test_id: &str) -> Config {
                 default: "1.0".to_string(),
                 temp_environment_variable_name: "".to_string(),
                 required_as_env: false,
-                value: "".to_string(),
+                value: "1.0".to_string(), // Set a default value
             },
-            // Add other rpcfg items here...
+            ConfigItem {
+                key: "project_name".to_string(),
+                description: "Name of the project".to_string(),
+                shellscript: "".to_string(),
+                default: format!("project_{}", test_id),
+                temp_environment_variable_name: "".to_string(),
+                required_as_env: false,
+                value: format!("project_{}", test_id), // Set a default value
+            },
+            ConfigItem {
+                key: "config_name".to_string(),
+                description: "Name of the configuration".to_string(),
+                shellscript: "".to_string(),
+                default: format!("config_{}", test_id),
+                temp_environment_variable_name: "".to_string(),
+                required_as_env: false,
+                value: format!("config_{}", test_id), // Set a default value
+            },
+            ConfigItem {
+                key: "environment".to_string(),
+                description: "Environment for the configuration".to_string(),
+                shellscript: "".to_string(),
+                default: format!("env_{}", test_id),
+                temp_environment_variable_name: "".to_string(),
+                required_as_env: false,
+                value: format!("env_{}", test_id), // Set a default value
+            },
         ],
         app: vec![
             ConfigItem {

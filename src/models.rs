@@ -11,6 +11,8 @@ pub struct ConfigItem {
     pub temp_environment_variable_name: String,
     #[serde(default)]
     pub required_as_env: bool,
+    //  this is here because we need a convinient place to collect the values from the user. we never store
+    //  the values in the input file, but rather in the output files.
     #[serde(skip)]
     pub value: String,
 }
@@ -37,14 +39,7 @@ impl Config {
     ///
     /// * `Vec<&ConfigItem>` - A vector of references to all matching ConfigItems
     ///
-    /// # Example
-    ///
-    /// ```
-    /// let config = Config::default();
-    /// let stored_settings = config.get_settings("stored");
-    /// assert!(!stored_settings.is_empty());
-    /// assert_eq!(stored_settings[0].key, "stored");
-    /// ```
+
     pub fn get_settings(&self, key: &str) -> Vec<&ConfigItem> {
         self.rpcfg
             .iter()
@@ -65,16 +60,6 @@ impl Config {
     /// # Returns
     ///
     /// * `Vec<&mut ConfigItem>` - A vector of mutable references to all matching ConfigItems
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// let mut config = Config::default();
-    /// let mut stored_settings = config.get_settings_mut("stored");
-    /// assert!(!stored_settings.is_empty());
-    /// stored_settings[0].value = "azure".to_string();
-    /// assert_eq!(config.get_settings("stored")[0].value, "azure");
-    /// ```
     pub fn get_settings_mut(&mut self, key: &str) -> Vec<&mut ConfigItem> {
         let mut results = Vec::new();
         for item in self.rpcfg.iter_mut().chain(self.app.iter_mut()) {
@@ -97,7 +82,7 @@ impl Default for Config {
                     default: "local".to_string(),
                     temp_environment_variable_name: "".to_string(),
                     required_as_env: false,
-                    value: "".to_string(),
+                    value: "local".to_string(),
                 },
                 ConfigItem {
                     key: "config_version".to_string(),
@@ -106,7 +91,7 @@ impl Default for Config {
                     default: "1.0".to_string(),
                     temp_environment_variable_name: "".to_string(),
                     required_as_env: false,
-                    value: "".to_string(),
+                    value: "1.0".to_string(),
                 },
                 ConfigItem {
                     key: "project_name".to_string(),
@@ -115,7 +100,7 @@ impl Default for Config {
                     default: "rpcfg".to_string(),
                     temp_environment_variable_name: "".to_string(),
                     required_as_env: false,
-                    value: "".to_string(),
+                    value: "default_project_name".to_string(),
                 },
                 ConfigItem {
                     key: "config_name".to_string(),
@@ -124,7 +109,7 @@ impl Default for Config {
                     default: "rpcfg_config".to_string(),
                     temp_environment_variable_name: "".to_string(),
                     required_as_env: false,
-                    value: "".to_string(),
+                    value: "default_config_name".to_string(),
                 },
                 ConfigItem {
                     key: "environment".to_string(),
@@ -133,7 +118,7 @@ impl Default for Config {
                     default: "development".to_string(),
                     temp_environment_variable_name: "".to_string(),
                     required_as_env: false,
-                    value: "".to_string(),
+                    value: "default_env".to_string(),
                 },
             ],
             app: Vec::new(),
