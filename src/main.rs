@@ -5,12 +5,13 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use rpcfg::commands::collect::execute;
+use rpcfg::commands::fetch;
 use rpcfg::test_utils::create_test_config;
 use rpcfg::{Config, ConfigItem};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{stderr, BufReader, Write};
+use std::io::{self, stderr, stdin, BufReader, Write};
 use tabwriter::TabWriter;
 use tracing::{debug, info, trace, Level};
 use tracing_subscriber::FmtSubscriber;
@@ -47,6 +48,10 @@ enum Commands {
     Collect {
         #[arg(short = 'i', long = "input")]
         input_file: String,
+
+        /// Ignore timestamp checks and always collect
+        #[arg(long = "ignore-timestamps")]
+        ignore_timestamps: bool,
     },
     /// Delete generated output files
     Delete,
@@ -101,9 +106,16 @@ fn parse_config_file(file_path: &str) -> Result<Config> {
     let file =
         File::open(file_path).with_context(|| format!("Failed to open file: {}", file_path))?;
     let reader = BufReader::new(file);
-    let config: Config = serde_json::from_reader(reader)
+    let mut config: Config = serde_json::from_reader(reader)
         .with_context(|| format!("Failed to parse JSON from file: {}", file_path))?;
-
+    // Update config items with default values
+    for item in config.rpcfg.iter_mut().chain(config.app.iter_mut()) {
+        if item.value.is_empty() {
+            item.value = item.default.clone();
+        }
+    }
+    // validate the rpcfg items
+    config.validate_rpcfg_config()?;
     Ok(config)
 }
 
@@ -155,44 +167,51 @@ fn main() -> Result<()> {
 
     info!("Starting application");
 
+   
+    let mut stdin = stdin().lock();
+    let mut stdout = stderr().lock();
+
     // Execute the appropriate command
-    match cli.command {
+    match &cli.command {
         Commands::Init { output } => {
             info!("Executing Init command");
-            let result = rpcfg::commands::init::execute(&output)?;
+            let result = rpcfg::commands::init::execute(output, &mut stdin, &mut stdout)?;
             println!("{}", result.message);
         }
-        Commands::Collect { input_file } => {
+        Commands::Collect {
+            input_file,
+            ignore_timestamps,
+        } => {
             info!("Executing Collect command");
-            let mut config = parse_config_file(&input_file)?;
-            rpcfg::commands::collect::execute(&mut config, &input_file)?;
+            let mut config = parse_config_file(input_file)?;
+            rpcfg::commands::collect::execute(
+                &mut config,
+                input_file,
+                *ignore_timestamps,
+                &mut stdin,
+                &mut stdout,
+            )?;
         }
-        _ => {
-            // For other commands, check if input_file is provided
+        Commands::Delete => {
+            info!("Executing Delete command");
+            // TODO: Implement Delete command
+        }
+        Commands::Fetch => {
+            info!("Executing Fetch command");
             let config = if let Some(file_path) = cli.input_file.as_ref() {
                 debug!("Parsing config file: {}", file_path);
                 parse_config_file(file_path)?
             } else {
                 return Err(anyhow::anyhow!(
-                    "No config file provided. Use -f or --input-file to specify a config file."
+                    "No config file provided. Use -i or --input to specify a config file."
                 ));
             };
-
-            match cli.command {
-                Commands::Delete => {
-                    info!("Executing Delete command");
-                    // TODO: Implement Delete command
-                }
-                Commands::Fetch => {
-                    info!("Executing Fetch command");
-                    // TODO: Implement Fetch command
-                }
-                Commands::Show => {
-                    info!("Executing Show command");
-                    // to do - pull the input values and display them in a table
-                }
-                _ => unreachable!(),
-            }
+            let result = fetch::execute(&config, &mut stdin, &mut stdout)?;
+            debug!("Fetch command result: {:?}", result);
+        }
+        Commands::Show => {
+            info!("Executing Show command");
+            // TODO: Implement Show command
         }
     }
 
@@ -210,7 +229,6 @@ mod tests {
     use std::fs;
     use std::io::Cursor;
     use uuid::Uuid;
-
 
     //
     // we haven't implemented this feature yet, so we can't test it
@@ -245,7 +263,7 @@ mod tests {
         assert!(matches!(result.status, rpcfg::Status::Ok));
 
         let output_str = String::from_utf8(output.into_inner())?;
-       
+
         assert!(output_str.contains("Invalid input. Please try again."));
         assert!(output_str.contains("Invalid item number. Please try again."));
 

@@ -1,14 +1,6 @@
 {
   "rpcfg": [
     {
-      "key": "stored",
-      "description": "Storage type for configuration",
-      "shellscript": "",
-      "default": "local",
-      "temp_environment_variable_name": "",
-      "required_as_env": false
-    },
-    {
       "key": "config_version",
       "description": "Version of the configuration",
       "shellscript": "",

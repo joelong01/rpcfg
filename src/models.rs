@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use anyhow::Error;
 
 #[derive(Serialize, Clone, Deserialize, Debug)]
 pub struct ConfigItem {
@@ -68,6 +69,43 @@ impl Config {
             }
         }
         results
+    }
+
+    pub fn validate_rpcfg_config(&mut self) -> Result<(), Error> {
+        for item in self.rpcfg.iter_mut() {
+            if item.value.is_empty() {
+                tracing::debug!(
+                    "RPCFG item {} has no value, setting to default {}",
+                    item.key,
+                    item.default
+                );
+                item.value = item.default.clone();
+            }
+        }
+
+        // Check if "stored" setting exists, if not, add it
+        if let Some(stored_setting) = self.rpcfg.iter_mut().find(|item| item.key == "stored") {
+            if stored_setting.value != "local" && stored_setting.value != "keyvault" {
+                tracing::warn!(
+                    "Invalid 'stored' value: '{}', setting to 'local'",
+                    stored_setting.value
+                );
+                stored_setting.value = "local".to_string();
+            }
+        } else {
+            tracing::info!("'stored' setting not found, adding with value 'local'");
+            self.rpcfg.push(ConfigItem {
+                key: "stored".to_string(),
+                description: "Storage type for configuration".to_string(),
+                shellscript: "".to_string(),
+                default: "local".to_string(),
+                temp_environment_variable_name: "".to_string(),
+                required_as_env: false,
+                value: "local".to_string(),
+            });
+        }
+
+        Ok(())
     }
 }
 

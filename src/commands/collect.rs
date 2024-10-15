@@ -2,8 +2,9 @@ use anyhow::Context;
 use std::collections::HashMap;
 use std::fmt::Write as FmtWrite; // Add this import at the top of the file
 use std::fs;
-use std::io::{self, BufRead, Write};
+use std::io::{BufRead, Write};
 use std::path::Path;
+
 use tabwriter::TabWriter;
 use tracing::debug;
 
@@ -12,14 +13,17 @@ use crate::{ConfigItem, EnvOutputUri, JsonOutputUri, Success};
 
 /// Executes the collect command, gathering configuration input from the user.
 ///
-/// This function serves as the entry point for the collect command. It sets up the
-/// input and output streams and calls `collect_user_input` to handle the actual
-/// collection of configuration data.
+/// This function serves as the entry point for the collect command. It checks if the
+/// configuration needs updating based on file timestamps (unless ignore_timestamps is true),
+/// and if so, it calls `collect_user_input` to handle the actual collection of configuration data.
 ///
 /// # Arguments
 ///
 /// * `config` - A mutable reference to the Config object to be updated.
 /// * `input_file` - The path to the input file.
+/// * `ignore_timestamps` - Whether to ignore timestamp checks and always collect.
+/// * `input` - A mutable reference to a BufRead trait object for reading user input.
+/// * `output` - A mutable reference to a Write trait object for writing prompts and messages.
 ///
 /// # Returns
 ///
@@ -28,45 +32,34 @@ use crate::{ConfigItem, EnvOutputUri, JsonOutputUri, Success};
 /// # Errors
 ///
 /// This function will return an error if:
-/// * There's an I/O error when setting up input/output streams.
+/// * There's an I/O error when checking file timestamps or accessing the file system.
 /// * The `collect_user_input` function encounters an error.
-///
-/// # Examples
-///
-/// ```
-/// use rpcfg::{Config, CommandResult};
-/// use anyhow::Result;
-///
-/// fn execute(config: &mut Config, input_file: &str) -> anyhow::Result<CommandResult> {
-///     // Implementation details...
-///     Ok(CommandResult {
-///         status: rpcfg::Status::Ok,
-///         message: "Configuration collected successfully.".to_string(),
-///         env_file: Some("path/to/env/file".to_string()),
-///         json_file: Some("path/to/json/file".to_string()),
-///     })
-/// }
-///
-/// fn main() -> Result<()> {
-///     let mut config = Config::default();
-///     let result = execute(&mut config, "path/to/input/file")?;
-///     assert!(matches!(result.status, rpcfg::Status::Ok));
-///     Ok(())
-/// }
-/// ```
-pub fn execute(config: &mut crate::Config, input_file: &str) -> anyhow::Result<crate::CommandResult> {
+pub fn execute(
+    config: &mut crate::Config,
+    input_file: &str,
+    ignore_timestamps: bool,
+    input: &mut impl BufRead,
+    output: &mut impl Write,
+) -> anyhow::Result<crate::CommandResult> {
     let input_path = Path::new(input_file);
 
     // Get the output file path using the JsonOutputUri! macro
-    let output_path = JsonOutputUri!(config)
-        .ok_or_else(|| anyhow::anyhow!("Failed to get JSON output path"))?;
+    let output_path =
+        JsonOutputUri!(config).ok_or_else(|| anyhow::anyhow!("Failed to get JSON output path"))?;
     let output_path = Path::new(&output_path);
 
-    // Check if the output file exists
-    if output_path.exists() {
+    debug!("Input file: {:?}", input_path);
+    debug!("Output file: {:?}", output_path);
+    debug!("Ignore timestamps: {}", ignore_timestamps);
+
+    // Check if the output file exists and is newer than the input, unless ignore_timestamps is true
+    if !ignore_timestamps && output_path.exists() {
         // Get the modification times
         let input_modified = input_path.metadata()?.modified()?;
         let output_modified = output_path.metadata()?.modified()?;
+
+        debug!("Input modified: {:?}", input_modified);
+        debug!("Output modified: {:?}", output_modified);
 
         // If the output is newer than or equal to the input, return silently
         if output_modified >= input_modified {
@@ -80,11 +73,9 @@ pub fn execute(config: &mut crate::Config, input_file: &str) -> anyhow::Result<c
         }
     }
 
-    // Proceed with the existing logic
-    let stdin = io::stdin();
-    let mut stdin = stdin.lock();
-    let mut stdout = io::stderr();
-    collect_user_input(config, &mut stdin, &mut stdout)
+    let result = collect_user_input(config, input, output)?;
+
+    Ok(result)
 }
 /// Collects user input to configure items in the provided Config object.
 ///
@@ -140,10 +131,7 @@ pub fn collect_user_input<R: BufRead, W: Write>(
     input: &mut R,
     output: &mut W,
 ) -> anyhow::Result<CommandResult> {
-    debug!(
-        "collect_user_input: config: {:?}",
-        config
-    );
+    debug!("collect_user_input: config: {:?}", config);
 
     // Initialize empty values with defaults
     initialize_config_values(config);
@@ -200,6 +188,7 @@ fn interactive_config_loop<R: BufRead, W: Write>(
     output: &mut W,
 ) -> anyhow::Result<()> {
     loop {
+        config.validate_rpcfg_config()?;
         show_current_config(config, output)?;
 
         write!(
@@ -229,7 +218,7 @@ fn read_user_input<R: BufRead>(input: &mut R) -> anyhow::Result<String> {
     input
         .read_line(&mut user_input)
         .context("Failed to read user input")?;
-    Ok(user_input.trim().to_string())  // Remove .to_lowercase()
+    Ok(user_input.trim().to_string()) // Remove .to_lowercase()
 }
 
 /// Handle updating a specific item in the configuration
@@ -509,7 +498,7 @@ pub fn add_new_setting<R: BufRead, W: Write>(
     output: &mut W,
 ) -> anyhow::Result<()> {
     writeln!(output, "Adding a new setting:")?;
-    
+
     write!(output, "Enter key: ")?;
     output.flush()?;
     let key = read_user_input(input)?;
@@ -526,7 +515,10 @@ pub fn add_new_setting<R: BufRead, W: Write>(
     output.flush()?;
     let temp_environment_variable_name = read_user_input(input)?;
 
-    write!(output, "Is this required as an environment variable? (y/n): ")?;
+    write!(
+        output,
+        "Is this required as an environment variable? (y/n): "
+    )?;
     output.flush()?;
     let required_as_env = read_user_input(input)?.to_lowercase() == "y";
 
@@ -548,11 +540,11 @@ pub fn add_new_setting<R: BufRead, W: Write>(
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-    use io::Cursor;
-    use uuid::Uuid;
     use super::*;
     use crate::{create_test_config, safe_test, ConfigItem};
+    use std::io::Cursor;
+    use std::fs;
+    use uuid::Uuid;
 
     safe_test!(test_non_interactive_mode, {
         // Test non-interactive mode of collect_user_input
@@ -760,7 +752,8 @@ mod tests {
         let test_id = Uuid::new_v4().to_string();
         let mut config = create_test_config(&test_id);
 
-        let mut input = Cursor::new("n\nnew_key\nNew description\ndefault_value\nNEW_ENV_VAR\ny\ns\nq\n");
+        let mut input =
+            Cursor::new("n\nnew_key\nNew description\ndefault_value\nNEW_ENV_VAR\ny\ns\nq\n");
         let mut output = Cursor::new(Vec::new());
 
         let result = collect_user_input(&mut config, &mut input, &mut output)?;
@@ -775,6 +768,153 @@ mod tests {
         assert_eq!(new_item.default, "default_value");
         assert_eq!(new_item.temp_environment_variable_name, "NEW_ENV_VAR");
         assert!(new_item.required_as_env);
+
+        Ok(())
+    });
+    safe_test!(test_storage_type_update, {
+        let test_id = Uuid::new_v4().to_string();
+
+        // Test invalid storage type
+        {
+            let mut config = create_test_config(&test_id);
+            let mut input = Cursor::new("1\ninvalid_storage\ns\nq\n");
+            let mut output = Cursor::new(Vec::new());
+
+            let result = collect_user_input(&mut config, &mut input, &mut output)?;
+            assert!(matches!(result.status, crate::models::Status::Ok));
+
+            let stored_item = config
+                .rpcfg
+                .iter()
+                .find(|item| item.key == "stored")
+                .unwrap();
+            assert_eq!(
+                stored_item.value, "local",
+                "Storage type should be reset to 'local' after invalid input"
+            );
+        }
+
+        // Test empty storage type
+        {
+            let mut config = create_test_config(&test_id);
+            let mut input = Cursor::new("1\n\ns\nq\n");
+            let mut output = Cursor::new(Vec::new());
+
+            let result = collect_user_input(&mut config, &mut input, &mut output)?;
+            assert!(matches!(result.status, crate::models::Status::Ok));
+
+            let stored_item = config
+                .rpcfg
+                .iter()
+                .find(|item| item.key == "stored")
+                .unwrap();
+            assert_eq!(
+                stored_item.value, "local",
+                "Storage type should be set to 'local' when empty input is provided"
+            );
+        }
+
+        // Test setting to "local"
+        {
+            let mut config = create_test_config(&test_id);
+            let mut input = Cursor::new("1\nlocal\ns\nq\n");
+            let mut output = Cursor::new(Vec::new());
+
+            let result = collect_user_input(&mut config, &mut input, &mut output)?;
+            assert!(matches!(result.status, crate::models::Status::Ok));
+
+            let stored_item = config
+                .rpcfg
+                .iter()
+                .find(|item| item.key == "stored")
+                .unwrap();
+            assert_eq!(
+                stored_item.value, "local",
+                "Storage type should be set to 'local'"
+            );
+        }
+
+        // Test setting to "keyvault"
+        // todo: add keyvault support
+        // {
+        //     let mut config = create_test_config(&test_id);
+        //     let mut input = Cursor::new("1\nkeyvault\ns\nq\n");
+        //     let mut output = Cursor::new(Vec::new());
+
+        //     let result = collect_user_input(&mut config, &mut input, &mut output)?;
+        //     assert!(matches!(result.status, crate::models::Status::Ok));
+
+        //     let stored_item = config.rpcfg.iter().find(|item| item.key == "stored").unwrap();
+        //     assert_eq!(stored_item.value, "keyvault", "Storage type should be set to 'keyvault'");
+        // }
+
+        Ok(())
+    });
+
+    safe_test!(test_ignore_timestamps_flag, {
+        let test_id = Uuid::new_v4().to_string();
+        let temp_dir = tempfile::TempDir::new()?;
+        let input_path = temp_dir.path().join("input.json");
+        let mut config = create_test_config(&test_id);
+
+        // Create initial input file
+        let mut input_file = fs::File::create(&input_path)?;
+        serde_json::to_writer_pretty(&mut input_file, &config)?;
+        input_file.flush()?;
+
+        // First collection
+        let mut input = Cursor::new("6\nnew_value\ns\nq\n");
+        let mut output = Cursor::new(Vec::new());
+        let result = execute(
+            &mut config,
+            input_path.to_str().unwrap(),
+            false,
+            &mut input,
+            &mut output,
+        )?;
+        let first_output_size = output.get_ref().len();
+        debug!("First execution result: {:?}", result);
+        debug!(
+            "First output content: {}",
+            String::from_utf8_lossy(output.get_ref())
+        );
+        debug!("First output size: {}", first_output_size);
+        assert!(
+            first_output_size > 0,
+            "First output buffer should not be empty"
+        );
+
+        // Second collection without ignore_timestamps
+        let mut input = Cursor::new("");
+        let mut output = Cursor::new(Vec::new());
+        execute(
+            &mut config,
+            input_path.to_str().unwrap(),
+            false,
+            &mut input,
+            &mut output,
+        )?;
+        let second_output_size = output.get_ref().len();
+        assert_eq!(
+            second_output_size, 0,
+            "Second output buffer should be empty"
+        );
+
+        // Third collection with ignore_timestamps
+        let mut input = Cursor::new("s\nq\n");
+        let mut output = Cursor::new(Vec::new());
+        execute(
+            &mut config,
+            input_path.to_str().unwrap(),
+            true,
+            &mut input,
+            &mut output,
+        )?;
+        let third_output_size = output.get_ref().len();
+        assert!(
+            third_output_size > 0,
+            "Third output buffer should not be empty"
+        );
 
         Ok(())
     });
