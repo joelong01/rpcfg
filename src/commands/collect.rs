@@ -9,7 +9,7 @@ use tabwriter::TabWriter;
 use tracing::debug;
 
 use crate::models::{CommandResult, Config, ConfigItem};
-use crate::{ EnvOutputUri, JsonOutputUri, Success};
+use crate::{env_output_uri, json_output_uri, Success};
 
 /// Executes the collect command, gathering configuration input from the user.
 ///
@@ -44,8 +44,8 @@ pub fn execute(
     let input_path = Path::new(input_file);
 
     // Get the output file path using the JsonOutputUri! macro
-    let output_path =
-        JsonOutputUri!(config).ok_or_else(|| anyhow::anyhow!("Failed to get JSON output path"))?;
+    let output_path = json_output_uri!(config)
+        .ok_or_else(|| anyhow::anyhow!("Failed to get JSON output path"))?;
     let output_path = Path::new(&output_path);
 
     debug!("Input file: {:?}", input_path);
@@ -67,7 +67,7 @@ pub fn execute(
             return Ok(crate::CommandResult {
                 status: crate::Status::Ok,
                 message: "Configuration is up to date.".to_string(),
-                env_file: EnvOutputUri!(config),
+                env_file: env_output_uri!(config),
                 json_file: Some(output_path.to_string_lossy().into_owned()),
             });
         }
@@ -79,10 +79,8 @@ pub fn execute(
 }
 /// Collects user input to configure items in the provided Config object.
 ///
-/// This function handles both interactive and non-interactive modes for collecting
-/// configuration data. In interactive mode, it prompts the user for input and allows
-/// updating individual items, adding new settings, toggling storage type, and saving the configuration.
-/// In non-interactive mode, it uses default values for all items and saves the configuration.
+/// This function initializes config values with defaults if
+/// they are empty and then handles the interactive configuration loop.
 ///
 /// # Arguments
 ///
@@ -138,15 +136,12 @@ pub fn collect_user_input<R: BufRead, W: Write>(
 
     interactive_config_loop(config, input, output)?;
 
-    // Save configuration (for both interactive and non-interactive modes)
-    save_configuration(config)?;
-
     // Set environment variables for required items
     set_environment_variables(config);
 
     let mut result = Success!("Configuration collected successfully.");
-    result.env_file = EnvOutputUri!(config);
-    result.json_file = JsonOutputUri!(config);
+    result.env_file = env_output_uri!(config);
+    result.json_file = json_output_uri!(config);
     Ok(result)
 }
 
@@ -170,7 +165,7 @@ fn initialize_config_values(config: &mut Config) {
 ///
 /// This function manages the interactive session where the user can view,
 /// update, add new settings, and save configuration items. It continues to prompt the user
-/// for actions until they choose to quit.
+/// for actions until they choose to quit or save.
 ///
 /// # Arguments
 ///
@@ -187,6 +182,8 @@ fn interactive_config_loop<R: BufRead, W: Write>(
     input: &mut R,
     output: &mut W,
 ) -> anyhow::Result<()> {
+    let mut new_setting_added = false;
+
     loop {
         config.validate_rpcfg_config()?;
         show_current_config(config, output)?;
@@ -201,11 +198,15 @@ fn interactive_config_loop<R: BufRead, W: Write>(
 
         match user_input.as_str() {
             "s" | "S" => {
-                save_configuration(config)?;
+                save_configuration(config, new_setting_added)?;
                 writeln!(output, "Configuration saved.")?;
+                break;
             }
             "q" | "Q" => break,
-            "n" | "N" => add_new_setting(config, input, output)?,
+            "n" | "N" => {
+                add_new_setting(config, input, output)?;
+                new_setting_added = true;
+            }
             _ => handle_item_update(config, &user_input, input, output)?,
         }
     }
@@ -409,7 +410,7 @@ pub fn update_item<R: BufRead, W: Write>(
 ///
 /// This function will create the output directory if it doesn't exist and
 /// will overwrite existing files if they already exist at the target paths.
-pub fn save_configuration(config: &Config) -> anyhow::Result<()> {
+pub fn save_configuration(config: &Config, save_input: bool) -> anyhow::Result<()> {
     let base_dir = crate::rp_macros::base_output_dir(config)
         .ok_or_else(|| anyhow::anyhow!("Failed to get base output directory"))?;
 
@@ -450,6 +451,22 @@ pub fn save_configuration(config: &Config) -> anyhow::Result<()> {
 
     debug!("Configuration saved successfully");
     debug!("ENV content: {}", env_content);
+
+    // Save input file if save_input is true and input_file is specified
+    if save_input {
+        let input_file_path = &config.input_file;
+        if !input_file_path.is_empty() {
+            debug!("Updating input file: {}", input_file_path);
+            let input_content = serde_json::to_string_pretty(&config)?;
+            fs::write(input_file_path, input_content)
+                .with_context(|| format!("Failed to update input file: {}", input_file_path))?;
+            debug!("Input file updated successfully");
+        } else {
+            debug!("No input file path specified, skipping input file update");
+        }
+    } else {
+        debug!("Skipping input file update (save_input is false)");
+    }
 
     Ok(())
 }
@@ -541,9 +558,12 @@ pub fn add_new_setting<R: BufRead, W: Write>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{test_utils::create_test_config, safe_test, models::ConfigItem};
-    use std::io::Cursor;
+    use crate::commands::init;
+    use crate::{create_test_input_file, parse_config_file};
+    use crate::{models::ConfigItem, safe_test, test_utils::create_test_config};
     use std::fs;
+    use std::io::Cursor;
+    use tempfile::TempDir;
     use uuid::Uuid;
 
     safe_test!(test_non_interactive_mode, {
@@ -698,7 +718,7 @@ mod tests {
         assert!(matches!(result.status, crate::models::Status::Ok));
 
         // Check JSON file content
-        let json_path = JsonOutputUri!(&config).expect("Failed to construct JSON output path");
+        let json_path = json_output_uri!(&config).expect("Failed to construct JSON output path");
         let json_content = fs::read_to_string(&json_path)?;
         let json_map: HashMap<String, String> = serde_json::from_str(&json_content)?;
 
@@ -716,7 +736,7 @@ mod tests {
         }
 
         // Check ENV file content
-        let env_path = EnvOutputUri!(&config).expect("Failed to construct ENV output path");
+        let env_path = env_output_uri!(&config).expect("Failed to construct ENV output path");
         let env_content = fs::read_to_string(&env_path)?;
 
         for (key, (value, required_as_env, is_app_setting)) in &settings {
@@ -749,20 +769,30 @@ mod tests {
     });
 
     safe_test!(test_add_new_setting, {
-        let test_id = Uuid::new_v4().to_string();
-        let mut config = create_test_config(&test_id);
+        // Create a test input file and get the config
+        let (mut config, _temp_dir) = create_test_input_file!("add_new_setting");
 
-        let mut input =
-            Cursor::new("n\nnew_key\nNew description\ndefault_value\nNEW_ENV_VAR\ny\ns\nq\n");
+        // Simulate user input to add a new setting
+        let mut input = Cursor::new("n\nnew_key\nNew description\ndefault_value\nNEW_ENV_VAR\ny\ns\nq\n");
         let mut output = Cursor::new(Vec::new());
 
+        // Run collect_user_input
         let result = collect_user_input(&mut config, &mut input, &mut output)?;
-
         assert!(matches!(result.status, crate::models::Status::Ok));
 
-        // Check if the new setting was added
+        // Verify the new setting is in the config object
         let new_item = config.app.iter().find(|item| item.key == "new_key");
-        assert!(new_item.is_some());
+        assert!(new_item.is_some(), "New setting should be present in the config object");
+        let new_item = new_item.unwrap();
+        assert_eq!(new_item.description, "New description");
+        assert_eq!(new_item.default, "default_value");
+        assert_eq!(new_item.temp_environment_variable_name, "NEW_ENV_VAR");
+        assert!(new_item.required_as_env);
+
+        // Verify the new setting is saved to the input file
+        let updated_config = parse_config_file(&config.input_file)?;
+        let new_item = updated_config.app.iter().find(|item| item.key == "new_key");
+        assert!(new_item.is_some(), "New setting should be present in the input file");
         let new_item = new_item.unwrap();
         assert_eq!(new_item.description, "New description");
         assert_eq!(new_item.default, "default_value");
@@ -771,6 +801,7 @@ mod tests {
 
         Ok(())
     });
+
     safe_test!(test_storage_type_update, {
         let test_id = Uuid::new_v4().to_string();
 

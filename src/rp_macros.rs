@@ -88,7 +88,7 @@ macro_rules! Fail {
 
 /// Macro for getting the JSON output file path
 #[macro_export]
-macro_rules! JsonOutputUri {
+macro_rules! json_output_uri {
     ($config:expr) => {{
         $crate::rp_macros::base_output_dir($config).map(|path| path.with_extension("json").to_string_lossy().into_owned())
     }};
@@ -96,7 +96,7 @@ macro_rules! JsonOutputUri {
 
 /// Macro for getting the ENV output file path
 #[macro_export]
-macro_rules! EnvOutputUri {
+macro_rules! env_output_uri {
     ($config:expr) => {{
         $crate::rp_macros::base_output_dir($config).map(|path| path.with_extension("env").to_string_lossy().into_owned())
     }};

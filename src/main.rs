@@ -24,11 +24,12 @@ use clap::{Parser, Subcommand};
 use crate::commands::collect::execute;
 use crate::test_utils::create_test_config;
 use commands::{collect, init, fetch};
+use commands::delete;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{stderr, stdin, BufReader, Write};
+use std::io::{stderr, stdin, stdout, BufReader, Write};
 use tabwriter::TabWriter;
 use tracing::{debug, info, trace, Level};
 use tracing_subscriber::FmtSubscriber;
@@ -41,10 +42,6 @@ use tracing_subscriber::FmtSubscriber;
 struct Cli {
     #[command(subcommand)]
     command: Commands,
-
-    /// Path to the input JSON file
-    #[arg(short = 'i', long = "input", global = true)]
-    input_file: Option<String>,
 
     /// Use silent mode (non-interactive)
     #[arg(short = 's', long = "silent", global = true)]
@@ -65,6 +62,7 @@ enum Commands {
     },
     /// Collect repository configurations and generate output files
     Collect {
+        /// Path to the input JSON file
         #[arg(short = 'i', long = "input")]
         input_file: String,
 
@@ -73,11 +71,27 @@ enum Commands {
         ignore_timestamps: bool,
     },
     /// Delete generated output files
-    Delete,
+    Delete {
+        /// Path to the input JSON file
+        #[arg(short = 'i', long = "input")]
+        input_file: String,
+
+        /// Skip confirmation prompt
+        #[arg(long)]
+        no_prompt: bool,
+    },
     /// Return the JSON config with the values
-    Fetch,
+    Fetch {
+        /// Path to the input JSON file
+        #[arg(short = 'i', long = "input")]
+        input_file: String,
+    },
     /// Show the configuration table
-    Show,
+    Show {
+        /// Path to the input JSON file
+        #[arg(short = 'i', long = "input")]
+        input_file: String,
+    },
 }
 
 /// Parses a JSON configuration file into a Config struct.
@@ -135,6 +149,8 @@ fn parse_config_file(file_path: &str) -> Result<Config> {
     }
     // validate the rpcfg items
     config.validate_rpcfg_config()?;
+
+    config.input_file = file_path.to_string();
     Ok(config)
 }
 
@@ -186,15 +202,14 @@ fn main() -> Result<()> {
 
     info!("Starting application");
 
-   
-    let mut stdin = stdin().lock();
-    let mut stdout = stderr().lock();
+    let mut stdin_reader = stdin().lock();
+    let mut stdout = stdout().lock();
 
     // Execute the appropriate command
     match &cli.command {
         Commands::Init { output } => {
             info!("Executing Init command");
-            let result = init::execute(output, &mut stdin, &mut stdout)?;
+            let result = init::execute(output, &mut stdin_reader, &mut stdout)?;
             println!("{}", result.message);
         }
         Commands::Collect {
@@ -202,34 +217,30 @@ fn main() -> Result<()> {
             ignore_timestamps,
         } => {
             info!("Executing Collect command");
-            let mut config = parse_config_file(input_file)?;
+            let mut config = get_config(input_file)?;
             collect::execute(
                 &mut config,
                 input_file,
                 *ignore_timestamps,
-                &mut stdin,
+                &mut stdin_reader,
                 &mut stdout,
             )?;
         }
-        Commands::Delete => {
+        Commands::Delete { input_file, no_prompt } => {
             info!("Executing Delete command");
-            // TODO: Implement Delete command
+            let config = get_config(input_file)?;
+            let result = delete::execute(&config, *no_prompt, &mut stdin_reader, &mut stdout)?;
+            println!("{}", result.message);
         }
-        Commands::Fetch => {
+        Commands::Fetch { input_file } => {
             info!("Executing Fetch command");
-            let config = if let Some(file_path) = cli.input_file.as_ref() {
-                debug!("Parsing config file: {}", file_path);
-                parse_config_file(file_path)?
-            } else {
-                return Err(anyhow::anyhow!(
-                    "No config file provided. Use -i or --input to specify a config file."
-                ));
-            };
-            let result = fetch::execute(&config, &mut stdin, &mut stdout)?;
+            let config = get_config(input_file)?;
+            let result = fetch::execute(&config, &mut stdin_reader, &mut stdout)?;
             debug!("Fetch command result: {:?}", result);
         }
-        Commands::Show => {
+        Commands::Show { input_file } => {
             info!("Executing Show command");
+            let config = get_config(input_file)?;
             // TODO: Implement Show command
         }
     }
@@ -239,6 +250,41 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+/// Retrieves and parses the configuration file specified in the CLI arguments.
+///
+/// This function checks if an input file path is provided in the CLI arguments,
+/// and if so, it attempts to parse the file into a `Config` struct.
+///
+/// # Arguments
+///
+/// * `cli` - A reference to the `Cli` struct containing parsed command-line arguments.
+///
+/// # Returns
+///
+/// * `Result<Config>` - The parsed Config struct if successful, or an error if:
+///   - No input file is specified in the CLI arguments.
+///   - The specified file cannot be read or parsed.
+///
+/// # Errors
+///
+/// This function will return an error if:
+/// * No input file is provided in the CLI arguments.
+/// * The `parse_config_file` function fails to read or parse the specified file.
+///
+/// # Example
+///
+/// ```
+/// let cli = Cli::parse();
+/// match get_config(&cli) {
+///     Ok(config) => println!("Configuration loaded successfully"),
+///     Err(e) => eprintln!("Failed to load configuration: {}", e),
+/// }
+/// ```
+fn get_config(input_file: &str) -> Result<Config> {
+    let mut config = parse_config_file(input_file)?;
+    config.input_file = input_file.to_string();
+    Ok(config)
+}
 #[cfg(test)]
 mod tests {
     use super::*;

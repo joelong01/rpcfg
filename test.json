@@ -31,7 +31,24 @@
       "default": "development",
       "temp_environment_variable_name": "",
       "required_as_env": false
+    },
+    {
+      "key": "stored",
+      "description": "Storage type for configuration",
+      "shellscript": "",
+      "default": "local",
+      "temp_environment_variable_name": "",
+      "required_as_env": false
     }
   ],
-  "app": []
+  "app": [
+    {
+      "key": "newkey",
+      "description": "newdes",
+      "shellscript": "",
+      "default": "newval",
+      "temp_environment_variable_name": "",
+      "required_as_env": false
+    }
+  ]
 }

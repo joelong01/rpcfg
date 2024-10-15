@@ -24,6 +24,8 @@ pub struct Config {
     pub app: Vec<ConfigItem>,
     #[serde(skip)]
     pub is_test: bool,
+    #[serde(skip)]
+    pub input_file: String,
 }
 
 impl Config {
@@ -161,6 +163,7 @@ impl Default for Config {
             ],
             app: Vec::new(),
             is_test: false,
+            input_file: String::new(),
         }
     }
 }

@@ -1,8 +1,12 @@
 use crate::models::{Config, ConfigItem};
+use std::fs;
+
+use serde_json;
 
 pub fn create_test_config(test_id: &str) -> Config {
     Config {
         is_test: true,
+        input_file: format!("test_input_{}.json", test_id),
         rpcfg: vec![
             ConfigItem {
                 key: "stored".to_string(),
@@ -71,4 +75,26 @@ pub fn create_test_config(test_id: &str) -> Config {
             },
         ],
     }
+}
+
+#[macro_export]
+macro_rules! create_test_input_file {
+    ($seed:expr) => {{
+        let test_id = format!("{}-{}", $seed, uuid::Uuid::new_v4());
+        let temp_dir = tempfile::TempDir::new().expect("Failed to create temp dir");
+        let input_path = temp_dir.path().join(format!("input-{}.json", test_id));
+        
+        // Create test config
+        let mut config = crate::create_test_config(&test_id);
+        config.input_file = input_path.to_str().unwrap().to_string();
+        
+        // Save the config to the file
+        let config_json = serde_json::to_string_pretty(&config)
+            .expect("Failed to serialize config");
+        std::fs::write(&input_path, config_json)
+            .expect("Failed to write config to file");
+        
+        // Return both the config and the TempDir
+        (config, temp_dir)
+    }};
 }
