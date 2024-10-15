@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, BufRead, Write};
 use tracing::{debug, info};
-use crate::{Config, CommandResult, Status, JsonOutputUri};
+use crate::models::{Config, CommandResult, Status};
+use crate::JsonOutputUri;
 
 /// Fetches and displays the current configuration from a JSON file.
 ///

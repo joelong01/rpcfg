@@ -1,4 +1,4 @@
-use crate::{Config, CommandResult, Status};
+use crate::models::{Config, CommandResult, Status};
 use anyhow::{Context, Result};
 use std::fs;
 use std::io::{BufRead, Write};

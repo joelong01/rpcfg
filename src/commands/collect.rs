@@ -8,8 +8,8 @@ use std::path::Path;
 use tabwriter::TabWriter;
 use tracing::debug;
 
-use crate::models::{CommandResult, Config};
-use crate::{ConfigItem, EnvOutputUri, JsonOutputUri, Success};
+use crate::models::{CommandResult, Config, ConfigItem};
+use crate::{ EnvOutputUri, JsonOutputUri, Success};
 
 /// Executes the collect command, gathering configuration input from the user.
 ///
@@ -541,7 +541,7 @@ pub fn add_new_setting<R: BufRead, W: Write>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{create_test_config, safe_test, ConfigItem};
+    use crate::{test_utils::create_test_config, safe_test, models::ConfigItem};
     use std::io::Cursor;
     use std::fs;
     use uuid::Uuid;

@@ -2,19 +2,38 @@
 #![allow(dead_code)]
 #![allow(unused_imports)]
 
+ mod commands{
+    pub mod collect;
+    pub mod delete;
+    pub mod fetch;
+    pub mod init;
+ }
+pub mod common;
+pub mod models;
+pub mod rp_macros;
+pub mod test_utils;
+
+// Re-export important structs and macros - this will remove the heirarchy and put them at the crate level
+pub use common::*;
+pub use models::*;
+pub use rp_macros::*;
+pub use test_utils::*;
+
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use rpcfg::commands::collect::execute;
-use rpcfg::commands::fetch;
-use rpcfg::test_utils::create_test_config;
-use rpcfg::{Config, ConfigItem};
+use crate::commands::collect::execute;
+use crate::test_utils::create_test_config;
+use commands::{collect, init, fetch};
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{self, stderr, stdin, BufReader, Write};
+use std::io::{stderr, stdin, BufReader, Write};
 use tabwriter::TabWriter;
 use tracing::{debug, info, trace, Level};
 use tracing_subscriber::FmtSubscriber;
+
+
 
 /// CLI tool for managing repository configurations
 #[derive(Parser)]
@@ -175,7 +194,7 @@ fn main() -> Result<()> {
     match &cli.command {
         Commands::Init { output } => {
             info!("Executing Init command");
-            let result = rpcfg::commands::init::execute(output, &mut stdin, &mut stdout)?;
+            let result = init::execute(output, &mut stdin, &mut stdout)?;
             println!("{}", result.message);
         }
         Commands::Collect {
@@ -184,7 +203,7 @@ fn main() -> Result<()> {
         } => {
             info!("Executing Collect command");
             let mut config = parse_config_file(input_file)?;
-            rpcfg::commands::collect::execute(
+            collect::execute(
                 &mut config,
                 input_file,
                 *ignore_timestamps,
@@ -224,8 +243,8 @@ fn main() -> Result<()> {
 mod tests {
     use super::*;
     use crate::{Config, ConfigItem};
-    use rpcfg::commands::collect::collect_user_input;
-    use rpcfg::safe_test;
+    use crate::commands::collect::collect_user_input;
+    use crate::safe_test;
     use std::fs;
     use std::io::Cursor;
     use uuid::Uuid;
@@ -260,7 +279,7 @@ mod tests {
 
         let result = collect_user_input(&mut config, &mut input, &mut output)?;
 
-        assert!(matches!(result.status, rpcfg::Status::Ok));
+        assert!(matches!(result.status, crate::models::Status::Ok));
 
         let output_str = String::from_utf8(output.into_inner())?;
 
